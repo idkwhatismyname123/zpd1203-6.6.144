@@ -1,0 +1,321 @@
+From 7082ee82a8e293c9bacc878a5afbe10c54e3aaec Mon Sep 17 00:00:00 2001
+From: ZPD1203 Kernel Port <zpd1203@localhost>
+Date: Tue, 24 Nov 2026 21:24:45 +1000
+Subject: [PATCH] zpd1203: abi: add /dev/ion -> DMA-BUF Heap compat driver and
+ ABI config
+
+---
+ arch/arm64/configs/zpd1203_abi.config  |   8 +
+ drivers/dma-buf/heaps/Kconfig          |   8 +
+ drivers/dma-buf/heaps/Makefile         |   2 +
+ drivers/dma-buf/heaps/mtk_ion_compat.c | 257 +++++++++++++++++++++++++
+ 4 files changed, 275 insertions(+)
+ create mode 100644 arch/arm64/configs/zpd1203_abi.config
+ create mode 100644 drivers/dma-buf/heaps/mtk_ion_compat.c
+
+diff --git a/arch/arm64/configs/zpd1203_abi.config b/arch/arm64/configs/zpd1203_abi.config
+new file mode 100644
+index 0000000..421bf97
+--- /dev/null
++++ b/arch/arm64/configs/zpd1203_abi.config
+@@ -0,0 +1,8 @@
++# ZPD1203 Phase 6 Android 12 Vendor ABI & Ramdisk XZ Compression
++CONFIG_DMABUF_HEAPS=y
++# CONFIG_DMABUF_HEAPS_SYSTEM is not set
++CONFIG_DEVICE_MODULES_DMABUF_HEAPS_DEFERRED_FREE=y
++CONFIG_DEVICE_MODULES_DMABUF_HEAPS_PAGE_POOL=y
++CONFIG_DEVICE_MODULES_DMABUF_HEAPS_SYSTEM=y
++CONFIG_ZPD1203_ION_DMABUF_COMPAT=y
++CONFIG_RD_XZ=y
+diff --git a/drivers/dma-buf/heaps/Kconfig b/drivers/dma-buf/heaps/Kconfig
+index b773084..dbe2e87 100644
+--- a/drivers/dma-buf/heaps/Kconfig
++++ b/drivers/dma-buf/heaps/Kconfig
+@@ -41,3 +41,11 @@ config DMABUF_LEGACY_TEST
+ 	  This config is for legacy chip to skip new chip only case.
+ 	  If you are sure the chip not support the dmabuf secure test, say Y to
+ 	  skip the case. If in doubt, say N.
++
++config ZPD1203_ION_DMABUF_COMPAT
++	bool "ZPD1203 /dev/ion to DMA-BUF Heap compatibility layer"
++	depends on DMABUF_HEAPS
++	help
++	  Expose /dev/ion (ABI v2) backed by Linux 6.6 DMA-BUF Heaps
++	  ("mtk_mm" on BIT(10) and "system" on BIT(0)) for Android 12
++	  vendor HALs such as Codec2/libion_mtk.
+diff --git a/drivers/dma-buf/heaps/Makefile b/drivers/dma-buf/heaps/Makefile
+index e412052..e5b7daf 100644
+--- a/drivers/dma-buf/heaps/Makefile
++++ b/drivers/dma-buf/heaps/Makefile
+@@ -26,3 +26,5 @@ ifndef CONFIG_GRT_HYPERVISOR
+ obj-$(CONFIG_MTK_TRUSTED_MEMORY_SUBSYSTEM)	+= mtk_sec_heap.o
+ endif
+ obj-$(CONFIG_DMABUF_HEAPS_DEBUG) += mtk_heap_debug.o
++
++obj-$(CONFIG_ZPD1203_ION_DMABUF_COMPAT) += mtk_ion_compat.o
+diff --git a/drivers/dma-buf/heaps/mtk_ion_compat.c b/drivers/dma-buf/heaps/mtk_ion_compat.c
+new file mode 100644
+index 0000000..32b8e27
+--- /dev/null
++++ b/drivers/dma-buf/heaps/mtk_ion_compat.c
+@@ -0,0 +1,257 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * ZPD1203 Android 12 Vendor ABI Compatibility: /dev/ion -> DMA-BUF Heaps
++ *
++ * Translates legacy Android ION ABI v2 ioctls (ION_IOC_ABI_VERSION,
++ * ION_IOC_HEAP_QUERY, ION_IOC_ALLOC) directly to real Linux 6.6 DMA-BUF Heaps
++ * ("mtk_mm" / "mtk_mm-uncached" on BIT(10) and "system" / "system-uncached"
++ * on BIT(0)). Unsupported ioctls honestly return -ENOTTY.
++ */
++
++#include <linux/bitops.h>
++#include <linux/compat.h>
++#include <linux/dma-heap.h>
++#include <linux/err.h>
++#include <linux/fcntl.h>
++#include <linux/fs.h>
++#include <linux/init.h>
++#include <linux/ioctl.h>
++#include <linux/kernel.h>
++#include <linux/miscdevice.h>
++#include <linux/mm.h>
++#include <linux/string.h>
++#include <linux/types.h>
++#include <linux/uaccess.h>
++
++#define ZPD_ION_ABI_VERSION		2
++#define ZPD_ION_FLAG_CACHED		1U
++#define ZPD_ION_MAX_HEAP_NAME		32
++
++#define ZPD_ION_HEAP_TYPE_SYSTEM	0U
++#define ZPD_ION_HEAP_TYPE_CUSTOM	16U
++
++#define ZPD_ION_SYSTEM_HEAP_ID		0U
++#define ZPD_ION_MM_HEAP_ID		10U
++
++struct zpd_ion_allocation_data {
++	__u64 len;
++	__u32 heap_id_mask;
++	__u32 flags;
++	__u32 fd;
++	__u32 unused;
++};
++
++struct zpd_ion_heap_data {
++	char name[ZPD_ION_MAX_HEAP_NAME];
++	__u32 type;
++	__u32 heap_id;
++	__u32 reserved0;
++	__u32 reserved1;
++	__u32 reserved2;
++};
++
++struct zpd_ion_heap_query {
++	__u32 cnt;
++	__u32 reserved0;
++	__u64 heaps;
++	__u32 reserved1;
++	__u32 reserved2;
++};
++
++#define ZPD_ION_IOC_MAGIC	'I'
++#define ZPD_ION_IOC_ALLOC	_IOWR(ZPD_ION_IOC_MAGIC, 0, struct zpd_ion_allocation_data)
++#define ZPD_ION_IOC_HEAP_QUERY	_IOWR(ZPD_ION_IOC_MAGIC, 8, struct zpd_ion_heap_query)
++#define ZPD_ION_IOC_ABI_VERSION	_IOR(ZPD_ION_IOC_MAGIC, 9, __u32)
++
++struct zpd_ion_heap_desc {
++	const char *ion_name;
++	const char *dmabuf_cached;
++	const char *dmabuf_uncached;
++	__u32 type;
++	__u32 heap_id;
++};
++
++static const struct zpd_ion_heap_desc zpd_ion_heaps[] = {
++	{
++		.ion_name = "system",
++		.dmabuf_cached = "system",
++		.dmabuf_uncached = "system-uncached",
++		.type = ZPD_ION_HEAP_TYPE_SYSTEM,
++		.heap_id = ZPD_ION_SYSTEM_HEAP_ID,
++	},
++	{
++		.ion_name = "mtk_ion_mm_heap",
++		.dmabuf_cached = "mtk_mm",
++		.dmabuf_uncached = "mtk_mm-uncached",
++		.type = ZPD_ION_HEAP_TYPE_CUSTOM,
++		.heap_id = ZPD_ION_MM_HEAP_ID,
++	},
++};
++
++static struct dma_heap *zpd_ion_find_heap(const struct zpd_ion_heap_desc *desc,
++					  bool cached)
++{
++	struct dma_heap *heap;
++
++	if (!cached && desc->dmabuf_uncached) {
++		heap = dma_heap_find(desc->dmabuf_uncached);
++		if (heap)
++			return heap;
++	}
++	return dma_heap_find(desc->dmabuf_cached);
++}
++
++static int zpd_ion_query_heaps(struct zpd_ion_heap_query *query)
++{
++	struct zpd_ion_heap_data __user *buffer;
++	struct zpd_ion_heap_data hdata;
++	bool present[ARRAY_SIZE(zpd_ion_heaps)];
++	__u32 total = 0, copied = 0;
++	size_t i;
++
++	if (query->reserved0 || query->reserved1 || query->reserved2)
++		return -EINVAL;
++
++	for (i = 0; i < ARRAY_SIZE(zpd_ion_heaps); i++) {
++		struct dma_heap *heap = dma_heap_find(zpd_ion_heaps[i].dmabuf_cached);
++
++		present[i] = (heap != NULL);
++		if (heap) {
++			dma_heap_put(heap);
++			total++;
++		}
++	}
++
++	buffer = u64_to_user_ptr(query->heaps);
++	if (!buffer) {
++		query->cnt = total;
++		return 0;
++	}
++
++	if (!query->cnt)
++		return -EINVAL;
++
++	for (i = 0; i < ARRAY_SIZE(zpd_ion_heaps) && copied < query->cnt; i++) {
++		if (!present[i])
++			continue;
++
++		memset(&hdata, 0, sizeof(hdata));
++		strscpy(hdata.name, zpd_ion_heaps[i].ion_name, sizeof(hdata.name));
++		hdata.type = zpd_ion_heaps[i].type;
++		hdata.heap_id = zpd_ion_heaps[i].heap_id;
++
++		if (copy_to_user(&buffer[copied], &hdata, sizeof(hdata)))
++			return -EFAULT;
++
++		copied++;
++	}
++
++	query->cnt = copied;
++	return 0;
++}
++
++static int zpd_ion_alloc_fd(const struct zpd_ion_allocation_data *alloc)
++{
++	const struct zpd_ion_heap_desc *selected = NULL;
++	struct dma_heap *heap = NULL;
++	size_t len;
++	bool cached;
++	int fd;
++
++	if (!alloc->len)
++		return -EINVAL;
++
++	len = PAGE_ALIGN((size_t)alloc->len);
++	if (!len || len < alloc->len)
++		return -EINVAL;
++
++	cached = !!(alloc->flags & ZPD_ION_FLAG_CACHED);
++
++	/* Prefer MediaTek multimedia heap (BIT(10)) if requested, else system (BIT(0)) */
++	if (alloc->heap_id_mask & BIT(ZPD_ION_MM_HEAP_ID)) {
++		selected = &zpd_ion_heaps[1];
++		heap = zpd_ion_find_heap(selected, cached);
++	}
++	if (!heap && (alloc->heap_id_mask & BIT(ZPD_ION_SYSTEM_HEAP_ID))) {
++		selected = &zpd_ion_heaps[0];
++		heap = zpd_ion_find_heap(selected, cached);
++	}
++	if (!heap)
++		return -ENODEV;
++
++	fd = dma_heap_bufferfd_alloc(heap, len, O_RDWR | O_CLOEXEC, 0);
++	dma_heap_put(heap);
++	return fd;
++}
++
++static long zpd_ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
++{
++	union {
++		struct zpd_ion_allocation_data alloc;
++		struct zpd_ion_heap_query query;
++		__u32 abi_version;
++	} data;
++	int ret = 0;
++
++	if (_IOC_SIZE(cmd) > sizeof(data))
++		return -EINVAL;
++
++	if (copy_from_user(&data, (void __user *)arg, _IOC_SIZE(cmd)))
++		return -EFAULT;
++
++	if (!(_IOC_DIR(cmd) & _IOC_WRITE))
++		memset(&data, 0, sizeof(data));
++
++	switch (cmd) {
++	case ZPD_ION_IOC_ALLOC: {
++		int fd = zpd_ion_alloc_fd(&data.alloc);
++
++		if (fd < 0)
++			return fd;
++		data.alloc.fd = fd;
++		break;
++	}
++	case ZPD_ION_IOC_HEAP_QUERY:
++		ret = zpd_ion_query_heaps(&data.query);
++		break;
++	case ZPD_ION_IOC_ABI_VERSION:
++		data.abi_version = ZPD_ION_ABI_VERSION;
++		break;
++	default:
++		return -ENOTTY;
++	}
++
++	if (!ret && (_IOC_DIR(cmd) & _IOC_READ)) {
++		if (copy_to_user((void __user *)arg, &data, _IOC_SIZE(cmd)))
++			return -EFAULT;
++	}
++
++	return ret;
++}
++
++static const struct file_operations zpd_ion_fops = {
++	.owner = THIS_MODULE,
++	.unlocked_ioctl = zpd_ion_ioctl,
++	.compat_ioctl = compat_ptr_ioctl,
++};
++
++static struct miscdevice zpd_ion_misc = {
++	.minor = MISC_DYNAMIC_MINOR,
++	.name = "ion",
++	.fops = &zpd_ion_fops,
++	.mode = 0666,
++};
++
++static int __init zpd_ion_compat_init(void)
++{
++	int ret = misc_register(&zpd_ion_misc);
++
++	if (ret) {
++		pr_err("mtk_ion_compat: failed to register /dev/ion: %d\n", ret);
++		return ret;
++	}
++
++	pr_info("mtk_ion_compat: /dev/ion ABI v2 -> DMA-BUF heaps initialized\n");
++	return 0;
++}
++device_initcall(zpd_ion_compat_init);
+-- 
+2.53.0
+

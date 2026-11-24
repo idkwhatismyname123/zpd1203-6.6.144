@@ -2,46 +2,42 @@
 
 ## 1. 约束条件
 - ZPD1203 设备**没有物理 UART**，**严禁要求拆机焊接调试串口**。
-- 所有内核带板调试必须依赖重启保留内存、分区转储、屏幕早期输出与 USB/ADB 通道。
+- 所有内核带板调试依赖重启保留内存、`expdb` 分区转储、屏幕输出与 USB Composite Gadget (ADB + ACM) 通道。
 
-## 2. 多级调试机制设计与 Phase 4 实现（已静态验证）
+## 2. 多级调试机制设计与实现（`已编译通过` / `已静态验证`）
 
 ### Level 1：内核早期异常与重启后日志留存 (`ramoops` / `pstore`)
-- **原理**：Preloader 通过 `mblock` 在 `0x4d010000` (`0xe0000` = 896 KiB) 预留非清零物理区间，LK 启动时动态注入 `ramoops.mem_address=0x4d010000 ramoops.mem_size=0xe0000 ramoops.pmsg_size=0x10000 ramoops.console_size=0x40000` 及 `debug-kinfo @ 0x4d000000 (0x10000)`。`mt6768-zpd1203-minimal.dts` 使用 `CONFIG_CMDLINE_EXTEND=y` 保留 LK 注入参数，严禁 `CMDLINE_FORCE`。
-- **内核配置（`zpd1203_minimal_defconfig` 已启用）**：
-  - `CONFIG_PSTORE=y`
-  - `CONFIG_PSTORE_CONSOLE=y`
-  - `CONFIG_PSTORE_PMSG=y`
-  - `CONFIG_PSTORE_RAM=y`
-  - `CONFIG_PSTORE_COMPRESS=y`
-- **取证方式**：`a12_init_wrapper`（PID 1 接管阶段）会先行挂载 `/sys/fs/pstore`，检索 `console-ramoops*` / `dmesg-ramoops*` / `pmsg-ramoops*`，将文件名与大小输出到 `/dev/kmsg`，将完整内容归档至 `/dev/.pstore_dump.log`，并把最后 1024 B tail 写入 `/dev/kmsg` 供当前启动的串口/ADB 立即读取。
+- **原理**：Preloader 通过 `mblock` 在 **`0x4d010000`** (`0xe0000` = 896 KiB) 预留非清零物理区间，LK 注入 `ramoops.mem_address=0x4d010000 ramoops.mem_size=0xe0000 ramoops.pmsg_size=0x10000 ramoops.console_size=0x40000` 与 `debug-kinfo @ 0x4d000000`。全量与最小构建均使用 `CONFIG_CMDLINE_EXTEND=y` 保留 LK 参数。
+- **内核配置**：`CONFIG_PSTORE=y`、`CONFIG_PSTORE_CONSOLE=y`、`CONFIG_PSTORE_PMSG=y`、`CONFIG_PSTORE_RAM=y`、`CONFIG_PSTORE_COMPRESS=y`。
+- **自动取证**：`a12_init_wrapper`（`STAGE 2`）首先挂载 `/sys/fs/pstore`，归档所有转储至 `/dev/.pstore_dump.log` 并将尾部 1024 B 写入 `/dev/kmsg`。
 
-### Level 2：MTK `EXPDB` 分区转储分析
+### Level 2：MTK `EXPDB` 分区离线取证
 - 设备存在独立 `expdb` 分区（`0x1400000` = 20 MiB，`linear_start_addr: 0x108000`）。
-- 只读原厂备份 `expdb.img` 已用于确认实机 `ramoops`/`framebuffer`/`mblock` 布局；若实机出现无 ADB 崩溃且 `pstore` 无输出，可通过 MTKClient/Fastboot/Recovery 回读 `expdb` 解码 PL/LK/GZ/AEE 日志。
+- 当系统在 ADB 与 ACM 枚举前崩溃且 `pstore` 无信息时，可通过 SP Flash Tool / GeekFlashTool / mtkclient 回读 `expdb` 解析 PL/LK/GZ/AEE 日志。
 
-### Level 3：早期屏幕输出与 `simplefb` / `zpd_disp_regs` 调试
-- 在 Phase 4 最小启动配置中启用 `CONFIG_FB=y` + `CONFIG_FB_SIMPLE=y`（`CONFIG_DRM=n`，`&dispsys_config` 与 `&dsi0` 禁用，命令行加 `clk_ignore_unused pd_ignore_unused regulator_ignore_unused` 保持 LK 面板电源与时钟），使用 LK 活态帧缓冲 `0x7d350000` (`1200x2000`, stride `4864`, `a8r8g8b8`)。
-- `drivers/video/fbdev/simplefb.c` 移植了 `mediatek,zpd1203-lk-display` 钩子：探测时清除 OVL0 Layer 3 DAL 覆盖层（`0x1400b000 + 0x02c` 写 0，防止 LK 启动文字层遮挡）并提供 `/sys/kernel/debug/zpd_disp_regs` 寄存器快照。
-- `gralloc.fb0_bridge.so`（零动态库依赖、静态断言校验 `HMI`/`framebuffer_device_t` ABI 偏移）由 `a12_init_wrapper` 在 SwitchRoot 后覆盖 `/vendor/lib64/hw/gralloc.default.so`（同时用空文件屏蔽 `/vendor/lib64/hw/hwcomposer.mt6768.so`），允许 Android SurfaceFlinger 通过 `HWC2OnFbAdapter` + NEON DMA-BUF 搬运输出画面至 `fb0`。
+### Level 3：双模显示输出与回退保障（DRM v2 + `simplefb` 门控）
+- **`full` 模式**：启用 `mediatek_v2` DRM、`panel-himax-jt120wul005-vdo`、`aw37503` 与 `mtk_leds` 背光，提供原生 `/dev/dri/card0`。
+- **`minimal` 模式（或 `full` 模式 DRM 未就绪自动降级）**：使用 LK 帧缓冲 `0x7d350000`（`1200x2000`, `simplefb` 清除 OVL0-L3 DAL 覆盖层 + `/sys/kernel/debug/zpd_disp_regs` 快照）与零依赖 `gralloc.fb0_bridge.so`。
+- `a12_init_wrapper` 在 `SwitchRoot` 后检测 `/dev/dri/card0`：若 `/dev/dri/card0` 存在则跳过 HWC 空桩、启用原生 DRM；若不存在（`minimal` 或异常降级）则挂载 `gralloc.fb0_bridge.so` + `/dev/.empty_hwc` 保底输出画面。
 
-### Level 4：Initramfs 阶段标记 (`STAGE 1..7`) 与复合 USB Gadget (ADB + ACM)
-- 源码位于 `zpd1203/tools/a12_init_wrapper.c`（由 `zpd1203/scripts/build_minimal_ramdisk.sh` 静态编译为 `/init`）：
+### Level 4：Initramfs 阶段标记 (`STAGE 1..7`)、模块加载与复合 USB Gadget
+- 源码位于 [a12_init_wrapper.c](file:///d:/P3066/zpd1203/tools/a12_init_wrapper.c)（交叉编译为 `597,928 B` 静态 aarch64 二进制 `/init`）：
   - `STAGE 1`：挂载临时 `devtmpfs`/`sysfs`/`proc`，写入 `/dev/kmsg`。
   - `STAGE 2`：检查并归档 `/sys/fs/pstore/*` 至 `/dev/.pstore_dump.log`。
-  - `STAGE 3`：扫描 `/sys/class/udc` 检测 `musb-hdrc` 并 fork 后台日志守护进程（单次绑定策略，避免 ConfigFS UDC 重绑触发 MUSB DMA/QMU 卡死）。
-  - `STAGE 4`：卸载临时挂载并 `execv("/system/bin/init")`。
-  - `STAGE 5`：检测到 `/proc/1/root/vendor/lib64/hw/hwcomposer.mt6768.so` 后 chroot 至 Android 活态根文件系统，挂载 `gralloc.fb0_bridge.so` 与空 HWC 桩。
-  - `STAGE 6`：`/dev/graphics/fb0` 就绪后授权 `0666`。
-  - `STAGE 7`：待 `/dev/usb-ffs/adb/ep1` 就绪后将 `g1` 复合配置 (`ffs.adb + acm.gs1`, VID `0x0e8d` PID `0x2006`) 绑定至 `musb-hdrc`（若 ~175s 超时则自动退化绑定 `acm.gs1` 保留调试串口）。
-- **ACM 串口交互命令**（`/dev/ttyGS*`）：支持输入 `status`、`pstore`、 `unbind`、`reboot-fb`。
+  - `mod (pre-init)`：在进入 `/system/bin/init` 前按拓扑顺序加载 `/zpd_modules/` 内全部 11 枚 6.6 `.ko`（`mali_mgm_mt6768` -> `mali_kbase_mt6768` -> `rfkill` -> `cfg80211` -> `btif_drv` -> `conn_md_drv` -> `connfem` -> `wmt_drv` -> `wmt_chrdev_wifi` -> `bt_drv_connac1x` -> `wlan_drv_gen4m`），`minimal` 模式下无此目录则静默跳过。
+  - `STAGE 3`：扫描 `/sys/class/udc` 检测 `musb-hdrc` 并 fork 后台串口与状态守护子进程。
+  - `STAGE 4`：卸载临时挂载，`execv("/system/bin/init")`。
+  - `STAGE 5`：在 `SwitchRoot` 后重试未完成模块加载，将匹配 6.6 `.ko` 复制至 `/dev/.zpd_modules/` 并 `MS_BIND` 覆盖 `/vendor/lib/modules/<name>`，随后依据 `/dev/dri/card0` 执行 DRM / `simplefb` 门控分流，并对 `/dev/mali0`、`/dev/ion`、`/dev/graphics/fb0` 授权 `0666`。
+  - `STAGE 7`：待 `/dev/usb-ffs/adb/ep1` 就绪后将 `g1` 复合配置 (`ffs.adb + acm.gs1`, VID `0x0e8d` PID `0x2006`) 绑定至 `musb-hdrc`（超时 ~175s 回退至纯 `acm.gs1`）。
+- **ACM 串口交互命令**（`/dev/ttyGS*`）：支持输入 `status`（输出 `new_root/hwc_bound/g1_switched/ep1/dri/fb0/mali/ion/pstore/g1_UDC`）、`pstore`、`unbind`、`reboot-fb`。
 
-### Level 5：非破坏性测试与安全回退
-- 优先使用 `fastboot boot out/minimal/boot-minimal-6.6.img`（仅驻留内存，不擦写 eMMC）。
-- 因 `super` 仅 slot `_a` 存在逻辑分区，最小镜像命令行注入 `mt6768.force_slot_a=1`，即便从 `_b` 槽启动测试亦可正确挂载 `_a` 动态分区而不修改 `fstab.mt6768`。
+### Level 5：非破坏性测试、安全刷写、原厂恢复与一键日志收集
+- 内存临时测试：[test_fastboot_boot.ps1](file:///d:/P3066/scripts/test_fastboot_boot.ps1) / [test_fastboot_boot.sh](file:///d:/P3066/scripts/test_fastboot_boot.sh)
+- 一键日志采集（ADB `dmesg`/`pstore`/`lsmod`/`power_supply`/`dev_nodes`/`SurfaceFlinger`/`logcat` 或 TTY/`expdb` 离线指引）：[collect_logs.ps1](file:///d:/P3066/scripts/collect_logs.ps1) / [collect_logs.sh](file:///d:/P3066/scripts/collect_logs.sh)
+- 交互式门禁刷写/原厂恢复：[flash_boot_safe.ps1](file:///d:/P3066/scripts/flash_boot_safe.ps1) / [restore_stock.ps1](file:///d:/P3066/scripts/restore_stock.ps1)（含 `.sh` 对应版）
 
 ---
 
 ## 3. 真实设备日志档案
 
-> **当前尚无 Linux 6.6 实机测试日志**。实机测试后将在此追加真实 `dmesg`、`pstore`、`logcat` 摘要与排查结论。
+> **当前尚无 Linux 6.6 实机测试日志（`尚未验证`）**。用户实机运行后可通过 `scripts\collect_logs.ps1` 拉取并回填本节，作为后续真机调优与实机状态晋级依据。

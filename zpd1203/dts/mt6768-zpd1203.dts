@@ -1,0 +1,107 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Master Linux 6.6 Device Tree for ZYB ZPD1203 (MT6769V/CB / MT6768)
+ * Full hardware bring-up: DRM v2 Display/Backlight, SPI4 Himax Touch,
+ * Mali-G52 GPU, SGM41510 Charger, AW35615 Type-C PD, MT6358 Fuel Gauge,
+ * MT6768/MT6358 Audio + AW87XXX SmartPA, and MT6768 Connsys Wi-Fi/BT.
+ */
+
+#include "mt6768.dts"
+#include "zpd1203-stock-battery-profile.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+
+/ {
+	model = "ZYB ZPD1203 (MT6769V/CB / k69v1_64 Linux 6.6)";
+	compatible = "mediatek,MT6768";
+
+	debug_kinfo: debug-kinfo {
+		compatible = "google,debug-kinfo";
+		status = "okay";
+	};
+
+	/* Stock dtbo_a overlay compatibility targets */
+	lcm: lcm { };
+	flashlights_aw36515: flashlights_aw36515 { };
+	hall: hall { };
+	hall_sensor: hall_sensor { };
+	battery_swell_det: battery_swell_det { };
+	zlt_alsps: zlt_alsps { };
+
+	framebuffer0: framebuffer@7d350000 {
+		compatible = "simple-framebuffer";
+		reg = <0x0 0x7d350000 0x0 0x0095a000>;
+		status = "disabled";
+	};
+};
+
+&chosen {
+	#address-cells = <2>;
+	#size-cells = <2>;
+	ranges;
+};
+
+&mmc0 {
+	status = "okay";
+};
+
+&mmc1 {
+	status = "disabled";
+};
+
+&consys {
+	vcn18-supply = <&mt_pmic_vcn18_ldo_reg>;
+	vcn28-supply = <&mt_pmic_vcn28_ldo_reg>;
+	vcn33_bt-supply = <&mt_pmic_vcn33_bt_ldo_reg>;
+	vcn33_wifi-supply = <&mt_pmic_vcn33_wifi_ldo_reg>;
+};
+
+&mt6370 {
+	status = "disabled";
+};
+
+&dvfsrc {
+	status = "disabled";
+};
+
+&sysirq {
+	mediatek,intpol-init = <0x00000000 0x00000000 0x00004a04 0x003ffffe
+				0xf01e6de0 0x00014e7b 0x80000808 0x1cedfff7
+				0x387ec02f 0x000000a0>;
+};
+
+&mt_pmic_vdram2_ldo_reg {
+	regulator-always-on;
+};
+
+&mt_pmic_vibr_ldo_reg {
+	regulator-min-microvolt = <1800000>;
+	regulator-max-microvolt = <1800000>;
+	regulator-always-on;
+};
+
+&regulator_vibrator {
+	status = "disabled";
+};
+
+&gpufreq {
+	vgpu-supply = <&mt_pmic_vgpu_buck_reg>;
+	vsram_gpu-supply = <&mt_pmic_vsram_gpu_ldo_reg>;
+};
+
+&mt6358regulator {
+	mt_pmic_vsim1_ldo_reg: ldo_vsim1 {
+		regulator-name = "vsim1";
+		regulator-min-microvolt = <1700000>;
+		regulator-max-microvolt = <3100000>;
+		regulator-enable-ramp-delay = <540>;
+	};
+	mt_pmic_vsim2_ldo_reg: ldo_vsim2 {
+		regulator-name = "vsim2";
+		regulator-min-microvolt = <1700000>;
+		regulator-max-microvolt = <3100000>;
+		regulator-enable-ramp-delay = <540>;
+	};
+};
+
+#include "zpd1203-display-touch-gpu.dtsi"
+#include "zpd1203-power-audio-wireless.dtsi"

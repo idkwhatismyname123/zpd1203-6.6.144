@@ -1,37 +1,42 @@
 # 当前工作现场交接文档 (HANDOFF.md)
 
 - **最后更新**：2026-11-24
-- **当前状态**：**Phase 3 与 Phase 4 已全部完成编译与静态验证**（Agent 4）；准备并行进入 **Phase 5（Agent 5 显示/触控/GPU、Agent 6 无线/音频/电源/温控）** 与 **Phase 6–7（Agent 7 ABI/自动化构建校验）**。
+- **当前状态**：**Phase 0–7 宿主机开发、洁净集成构建、静态校验与项目文档已全部完成**；等待用户在 ZPD1203 实机上使用非破坏性 `fastboot boot` 启动并返回真实日志。
 
-## 已完成工作与当前现场（WSL2 + `d:\P3066`）
+## 1. 洁净源码仓库基线（全部 8 个 WSL2 仓库均已提交且 `clean=True`，零 `-dirty`）
 
-1. **Git 提交记录（Linux 6.6.144 洁净构建，无 `-dirty`）**：
-   - `/home/asus/zpd1203-6.6/kernel/kernel-6.6`（分支 `zpd1203-6.6`，基线 `329f9ae918a9`，HEAD **`a0efcb376f2a4f4dc08a0d3aebca9964b9375229`**）：
-     - `cc554201aaf5` `kbuild: integrate device_modules Makefile.ext and KernelSU`（已忽略未跟踪 `external/`）
-     - `c3fcb61c6fd2` `irqchip/mtk-sysirq: port platform driver and mediatek,intpol-init for MT6768`
-     - `4b4293088ed5` `init: add mt6768.force_slot_a=1 cmdline slot_a override`
-     - `21a8dc39ea0f` `video/fbdev/simplefb: port ZPD1203 OVL0 L3 clear and zpd_disp_regs debugfs`
-     - `a0efcb376f2a` `arm64: configs: add zpd1203_minimal_defconfig for Linux 6.6.144 bring-up`
-   - `/home/asus/zpd1203-6.6/kernel/kernel_device_modules-6.6`（分支 `zpd1203-6.6`，基线 `1561b421959f`，HEAD **`815405526aa37abc621a7c47e7eb5cbda4daeded`**）：
-     - `4654b45c01a6` `devmod: fix Linux 6.6.144 builtin Kbuild guards, MIN/MAX, RPMB, IOMMU, PPM, clkbuf`
-     - `02e25be96cdd` `arm64: dts: mediatek: add ZPD1203 minimal Linux 6.6 DTS and battery profile`
-     - `815405526aa3` `arm64: configs: add zpd1203_minimal.config fragment for Phase 4 bring-up`
-   - 全部 8 份 `git format-patch` 已导出至 `d:\P3066\patches\phase3_4\`。
+| 仓库路径 (`/home/asus/zpd1203-6.6/...`) | 分支 | Clean HEAD | 说明 |
+|---|---|---|---|
+| `kernel/kernel-6.6` | `zpd1203-6.6` | `91af1aa18e1a` | Linux 6.6.144 (`android15-6.6`) + KernelSU v3.3.1 + `sysirq` + `force_slot_a=1` + `simplefb` + `aw37503` + `zpd1203_defconfig` |
+| `kernel/kernel_device_modules-6.6` | `zpd1203-6.6` | `8ed4bf689504` | `Addster09` BSP + DRM v2 / `jt120wul005` / `hxchipset` / `sgm41510` / `tcpc_aw` / `mtk_ion_compat` / DTS / `zpd1203_defconfig` |
+| `modules/gpu` | `zpd1203-6.6` | `2d3b928b88ce` | Moto GPU `mali-r32p1` (`r32p1-01eac0`, `platform/mt6768` + `minmax.h` clang-21 fix) |
+| `modules/connectivity/common` | `android-15-release-vvta35.58-77-1` | `0fd4f365ead4` | Moto `wmt_drv.ko`（0 修改 clean） |
+| `modules/connectivity/connfem` | `android-15-release-vvta35.58-77-1` | `8a665a04c769` | Moto `connfem.ko`（0 修改 clean） |
+| `modules/connectivity/bt/mt66xx` | `android-15-release-vvta35.58-77-1` | `95859aaae7f4` | Moto `bt_drv_connac1x.ko`（0 修改 clean） |
+| `modules/connectivity/wlan/adaptor` | `android-15-release-vvta35.58-77-1` | `48e9f37a18b7` | Moto `wmt_chrdev_wifi.ko`（0 修改 clean） |
+| `modules/connectivity/wlan/core/gen4m` | `android-15-release-v1tl35.73-60-3` | `0eb4c16595f3` | Moto `wlan_drv_gen4m.ko`（0 修改 clean） |
 
-2. **已验证的 Phase 3/4 关键技术发现（供 Agent 5/6/7 直接复用）**：
-   - **`ALLOW_BUILTIN=y` 必须传入的变量**：`DEVICE_MODULES_REL_DIR=../kernel_device_modules-6.6`、`DEVICE_MODULES_PATH=/home/asus/zpd1203-6.6/kernel/kernel_device_modules-6.6`、`DEVCIE_MODULES_INCLUDE="-I.../include -I.../include/uapi"`。
-   - **eMMC 驱动选择**：6.6 `device_modules` 中 `mtk-sd.c` (`DEVICE_MODULES_MMC_MTK`) **不包含 `"mediatek,mt6768-mmc"` 匹配项且无 RPMB 注册**；必须启用 **`CONFIG_DEVICE_MODULES_MMC_MTK_PRO=y`**（`mtk-mmc.c` + `cqhci` + `inlinecrypt`）与 `CONFIG_DEVICE_MODULES_MMC_DEBUG=y` + `CONFIG_MTK_IRQ_DBG=y`。
-   - **MUSB + Gadget**：`usb0@11200000` 设为 `dr_mode="peripheral"` 并删除 `usb-role-switch`（已核实 `musb_dr.c` 原生按 `USB_DR_MODE_PERIPHERAL` 上电 PHY 并触发 `MUSB_VBUS_VALID`），需内置 `CONFIG_NOP_USB_XCEIV=y`。
-   - **DTBO 兼容性**：6.6 `mt6358_6768.dtsi` 缺失 `mt_pmic_vsim1_ldo_reg` / `mt_pmic_vsim2_ldo_reg`，已在 `mt6768-zpd1203-minimal.dts` 补齐；`fdtoverlay` 将原厂 `dtbo_a_0.dtb` 叠加至 `mt6768-zpd1203-minimal.dtb` 实测 0 错误（全部 49 条 `__fixups__` 通过）。
-   - **CPUFreq/PPM/EEM 注意事项**：`cpufreq_v2`/`ppm_v3`/`eem_v2` 依赖 `mtk_disp_notify`（DRM）与 `pbm`/`low_battery_throttling`/`mcdi`（Phase 5），故最小启动配置暂关闭之；Phase 5 启用完整显示/电源驱动后即可一并重新打开。
-   - **静态验证产物（`d:\P3066\out\minimal\`，非实机验证）**：
-     - `Image` (`28,510,720 B`), `Image.gz` (`11,731,770 B`), `mt6768-zpd1203-minimal.dtb` (`167,757 B`)
-     - `initramfs-minimal-6.6.cpio.gz` (`15,549,025 B`, 无 Magisk, 含 `STAGE 1..7` + `pstore` 归档 + 零依赖 `gralloc.fb0_bridge.so`)
-     - `boot-minimal-6.6.raw.img` (`27,453,440 B`), `boot-minimal-6.6.img` (`33,554,432 B`, Boot v2 + `0xd7b7ab1e` DT Table + unsigned AVB hash footer)
+- 输出内核版本标识：**`6.6.144-zpd1203-g91af1aa18e1a`**。
+- 全套 `git format-patch`（17 份补丁）、DTS/DTSI、config、分析报告（5 份）与脚本已完整保存至 `d:\P3066\`。
 
-3. **只读保护**：`D:\备份\p\GeekFlashTool_Readback_20260820162108246` 及 `/home/asus/zpd1203-5.10.240` 等预存目录绝对只读不可修改。
+## 2. 已静态验证交付产物（非实机验证）
 
-## 下一步行动
-1. **Agent 5 (`display-gpu-touch`)**：基于 `zpd1203-6.6` 分支移植完整显示（MTK DRM v2 + `jt120wul005` + `aw37503` + HWC 评估）、SPI4 Himax `hxchipset`（跳过 `GPIO158`）及 Moto GPU `mali-r32p1` + `ged` + `gpufreq`。
-2. **Agent 6 (`wireless-audio-power`)**：重编 Moto `vvta35`/`v1tl35` 6.6 Connsys `.ko`（`vermagic` 匹配 `6.6.144-zpd1203`）、适配 MT6768+MT6358 音频 + SmartPA、移植 `sgm415xx` + `aw35615` + `wusb3801` + `mt6358-gauge` 修复 USB 充电状态上报、打通 Thermal/CPUFreq/传感器及排查相机。
-3. **Agent 7 (`android-abi-build-test`)**：补全 `/dev/ion` `BIT(10)` 真实转发兼容层（Phase 6）与全自动化构建/校验/安全测试/原厂恢复脚本（Phase 7）。
+- **全量产物**（`d:\P3066\out\full\`，校验详见 `out\full\SHA256SUMS.txt`）：
+  - `boot-full-6.6.img`：`33,554,432 B`（SHA256 `81df1add2b4f225ad7bdf3bc5219da961aa04a3c54915ad06ac234c642842fc5`，raw `28,213,248 B`）
+  - `Image` (`39,406,080 B`), `Image.gz` (`15,691,027 B`), `mt6768-zpd1203.dtb` (`172,563 B`, `fdtoverlay` `202,774 B` PASS), `initramfs-full-6.6.cpio.xz` (`12,343,696 B`)
+  - 11 枚 stripped `.ko`（`modules/*.ko`）与对应 11 枚调试 unstripped `.ko`（`unstripped/*.ko`），全部通过 `vermagic` / `module_layout` CRC `0x2933d34f` / `llvm-nm` 0 未定义符号闭环。
+- **最小诊断保底产物**（`d:\P3066\out\minimal\`，校验详见 `out\minimal\SHA256SUMS.txt`）：
+  - `boot-minimal-6.6.img`：`33,554,432 B`（SHA256 `72c92725458ac735d29401ed3c196d1080ed6429dd10efb2b10bfa707e5b76e4`，raw `27,457,536 B`）
+  - `Image` (`28,510,720 B`), `Image.gz` (`11,731,820 B`), `mt6768-zpd1203-minimal.dtb` (`167,757 B`, `fdtoverlay` `199,454 B` PASS), `initramfs-minimal-6.6.cpio.gz` (`15,553,088 B`)
+
+## 3. 只读保护约束
+- 原厂分区备份 `D:\备份\p\GeekFlashTool_Readback_20260820162108246` 及 `/home/asus/{zpd1203-5.10.240,zpd1203,mt6768_build}` 全程未被修改。
+- 严禁未经用户确认执行 `fastboot flash`。
+
+## 4. 下一步实机验证建议流程
+1. 设备进入 Fastboot 后先用最小诊断包验证内核早起与 ADB/ACM/显示基线：
+   `.\scripts\test_fastboot_boot.ps1 -Mode minimal`
+2. 确认正常启动后，再用全量包验证 DRM/Himax/Mali GPU/Wi-Fi+BT/`sgm41510+aw35615` 充电上报与 `/dev/ion` ABI：
+   `.\scripts\test_fastboot_boot.ps1 -Mode full`
+3. 收集实时与崩溃后日志反馈调优（见 `DEBUGGING.md`）：
+   `.\scripts\collect_logs.ps1`

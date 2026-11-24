@@ -14,6 +14,22 @@
 #include <termios.h>
 #include <unistd.h>
 
+static const char *const zpd_module_order[] = {
+    "mali_mgm_mt6768.ko",
+    "mali_kbase_mt6768.ko",
+    "rfkill.ko",
+    "cfg80211.ko",
+    "btif_drv.ko",
+    "conn_md_drv.ko",
+    "connfem.ko",
+    "wmt_drv.ko",
+    "wmt_chrdev_wifi.ko",
+    "bt_drv_connac1x.ko",
+    "wlan_drv_gen4m.ko",
+};
+
+#define ZPD_MOD_COUNT ((int)(sizeof(zpd_module_order) / sizeof(zpd_module_order[0])))
+
 static int write_sys(const char *path, const char *val) {
     int fd = open(path, O_WRONLY | O_TRUNC);
     if (fd < 0) return -1;
@@ -34,6 +50,140 @@ static void klog_stage(int stage, const char *detail) {
     char buf[384];
     snprintf(buf, sizeof(buf), "<6>[ZPD1203-6.6] STAGE %d: %s\n", stage, detail);
     klog_note(buf);
+}
+
+static ssize_t copy_fd_to_path(int src_fd, const char *dst_path, mode_t mode) {
+    int dfd = open(dst_path, O_CREAT | O_WRONLY | O_TRUNC, mode);
+    char buf[4096];
+    size_t total = 0;
+
+    if (dfd < 0) return -1;
+    if (lseek(src_fd, 0, SEEK_SET) < 0) {
+        close(dfd);
+        return -1;
+    }
+
+    for (;;) {
+        ssize_t r = read(src_fd, buf, sizeof(buf));
+        if (r == 0) break;
+        if (r < 0) {
+            if (errno == EINTR) continue;
+            close(dfd);
+            return -1;
+        }
+        size_t off = 0;
+        while (off < (size_t)r) {
+            ssize_t w = write(dfd, buf + off, (size_t)r - off);
+            if (w <= 0) {
+                if (w < 0 && errno == EINTR) continue;
+                close(dfd);
+                return -1;
+            }
+            off += (size_t)w;
+        }
+        total += (size_t)r;
+    }
+
+    close(dfd);
+    chmod(dst_path, mode);
+    return (ssize_t)total;
+}
+
+static void open_zpd_modules(int mod_fds[ZPD_MOD_COUNT], int mod_loaded[ZPD_MOD_COUNT]) {
+    for (int i = 0; i < ZPD_MOD_COUNT; i++) {
+        char mpath[256];
+        snprintf(mpath, sizeof(mpath), "/zpd_modules/%s", zpd_module_order[i]);
+        mod_fds[i] = open(mpath, O_RDONLY);
+        mod_loaded[i] = 0;
+    }
+}
+
+static void close_zpd_modules(int mod_fds[ZPD_MOD_COUNT]) {
+    for (int i = 0; i < ZPD_MOD_COUNT; i++) {
+        if (mod_fds[i] >= 0) {
+            close(mod_fds[i]);
+            mod_fds[i] = -1;
+        }
+    }
+}
+
+static void load_zpd_modules(int mod_fds[ZPD_MOD_COUNT], int mod_loaded[ZPD_MOD_COUNT],
+                             const char *phase) {
+    int present = 0;
+    for (int i = 0; i < ZPD_MOD_COUNT; i++) {
+        if (mod_fds[i] >= 0) present++;
+    }
+    if (present == 0) return;
+
+    for (int i = 0; i < ZPD_MOD_COUNT; i++) {
+        char note[320];
+        if (mod_fds[i] < 0 || mod_loaded[i]) continue;
+        lseek(mod_fds[i], 0, SEEK_SET);
+        long rc = syscall(__NR_finit_module, mod_fds[i], "", 0);
+        if (rc == 0) {
+            mod_loaded[i] = 1;
+            snprintf(note, sizeof(note), "<6>[ZPD1203-6.6] mod (%s): loaded %s\n",
+                     phase, zpd_module_order[i]);
+            klog_note(note);
+        } else if (errno == EEXIST) {
+            mod_loaded[i] = 1;
+            snprintf(note, sizeof(note), "<6>[ZPD1203-6.6] mod (%s): %s already loaded\n",
+                     phase, zpd_module_order[i]);
+            klog_note(note);
+        } else {
+            snprintf(note, sizeof(note),
+                     "<4>[ZPD1203-6.6] mod (%s): finit_module %s failed errno=%d (%s)\n",
+                     phase, zpd_module_order[i], errno, strerror(errno));
+            klog_note(note);
+        }
+    }
+}
+
+static void stage_vendor_module_overrides(int mod_fds[ZPD_MOD_COUNT]) {
+    mkdir("/dev/.zpd_modules", 0755);
+    for (int i = 0; i < ZPD_MOD_COUNT; i++) {
+        char vpath[256];
+        char dpath[256];
+        char note[384];
+        if (mod_fds[i] < 0) continue;
+
+        snprintf(vpath, sizeof(vpath), "/vendor/lib/modules/%s", zpd_module_order[i]);
+        if (access(vpath, F_OK) != 0) continue;
+
+        snprintf(dpath, sizeof(dpath), "/dev/.zpd_modules/%s", zpd_module_order[i]);
+        ssize_t nbytes = copy_fd_to_path(mod_fds[i], dpath, 0644);
+        if (nbytes > 0) {
+            if (mount(dpath, vpath, "none", MS_BIND, NULL) == 0) {
+                snprintf(note, sizeof(note),
+                         "<6>[ZPD1203-6.6] a12-wrap: bind-mounted 6.6 %s over %s (%zd B)\n",
+                         zpd_module_order[i], vpath, nbytes);
+                klog_note(note);
+            } else {
+                snprintf(note, sizeof(note),
+                         "<4>[ZPD1203-6.6] a12-wrap: bind-mount %s failed errno=%d (%s)\n",
+                         vpath, errno, strerror(errno));
+                klog_note(note);
+            }
+        }
+    }
+}
+
+static void ensure_dev_perms(int *fb_chmed, int *mali_chmed, int *ion_chmed) {
+    if (!*fb_chmed && access("/dev/graphics/fb0", F_OK) == 0) {
+        chmod("/dev/graphics/fb0", 0666);
+        *fb_chmed = 1;
+        klog_stage(6, "/dev/graphics/fb0 ready (0666)");
+    }
+    if (!*mali_chmed && access("/dev/mali0", F_OK) == 0) {
+        chmod("/dev/mali0", 0666);
+        *mali_chmed = 1;
+        klog_note("<6>[ZPD1203-6.6] a12-wrap: /dev/mali0 ready (0666)\n");
+    }
+    if (!*ion_chmed && access("/dev/ion", F_OK) == 0) {
+        chmod("/dev/ion", 0666);
+        *ion_chmed = 1;
+        klog_note("<6>[ZPD1203-6.6] a12-wrap: /dev/ion ready (0666)\n");
+    }
 }
 
 static void dump_pstore_early(void) {
@@ -185,44 +335,15 @@ static void setup_hwc_fb_fallback(int *hwc_bound, int *bridge_fd) {
     }
 
     if (bridge_fd && *bridge_fd >= 0) {
-        int dfd = open("/dev/.gralloc_fb0_bridge.so", O_CREAT | O_WRONLY | O_TRUNC, 0755);
-        size_t total = 0;
-        int copy_ok = (dfd >= 0);
-        if (dfd >= 0) {
-            char buf[4096];
-            lseek(*bridge_fd, 0, SEEK_SET);
-            for (;;) {
-                ssize_t r = read(*bridge_fd, buf, sizeof(buf));
-                if (r == 0) break;
-                if (r < 0) {
-                    if (errno == EINTR) continue;
-                    copy_ok = 0;
-                    break;
-                }
-                size_t off = 0;
-                while (off < (size_t)r) {
-                    ssize_t w = write(dfd, buf + off, (size_t)r - off);
-                    if (w <= 0) {
-                        if (w < 0 && errno == EINTR) continue;
-                        copy_ok = 0;
-                        break;
-                    }
-                    off += (size_t)w;
-                }
-                if (!copy_ok) break;
-                total += (size_t)r;
-            }
-            close(dfd);
-        }
+        ssize_t total = copy_fd_to_path(*bridge_fd, "/dev/.gralloc_fb0_bridge.so", 0755);
         close(*bridge_fd);
         *bridge_fd = -1;
 
-        if (copy_ok && total > 0) {
-            chmod("/dev/.gralloc_fb0_bridge.so", 0755);
+        if (total > 0) {
             if (mount("/dev/.gralloc_fb0_bridge.so", "/vendor/lib64/hw/gralloc.default.so",
                       "none", MS_BIND, NULL) == 0) {
                 snprintf(msg, sizeof(msg),
-                         "<6>[ZPD1203-6.6] a12-wrap: bind-mounted /dev/.gralloc_fb0_bridge.so over gralloc.default.so (%zu bytes)\n",
+                         "<6>[ZPD1203-6.6] a12-wrap: bind-mounted /dev/.gralloc_fb0_bridge.so over gralloc.default.so (%zd bytes)\n",
                          total);
                 klog_note(msg);
             } else {
@@ -352,7 +473,9 @@ static void send_pstore_to_tty(int tty_fd) {
     close(dfd);
 }
 
-static void run_logger_child(int kmsg_fd, int proc_fd, int bridge_fd, const char *hw_udc) {
+static void run_logger_child(int kmsg_fd, int proc_fd, int bridge_fd,
+                             int mod_fds[ZPD_MOD_COUNT], int mod_loaded[ZPD_MOD_COUNT],
+                             const char *hw_udc) {
     static char ring[524288];
     size_t fill = 0, sent = 0;
     char cmd[64];
@@ -362,6 +485,8 @@ static void run_logger_child(int kmsg_fd, int proc_fd, int bridge_fd, const char
     int in_new_root = 0;
     int hwc_bound = 0;
     int fb_chmed = 0;
+    int mali_chmed = 0;
+    int ion_chmed = 0;
     int switched_to_g1 = 0;
     int loops = 0;
 
@@ -370,7 +495,7 @@ static void run_logger_child(int kmsg_fd, int proc_fd, int bridge_fd, const char
     signal(SIGHUP, SIG_IGN);
 
     static const char banner[] =
-        "\r\n=== ZPD1203 Linux 6.6 Minimal Diagnostic Logger (ADB+ACM; cmds: status, pstore, unbind, reboot-fb) ===\r\n";
+        "\r\n=== ZPD1203 Linux 6.6 Boot/Diagnostic Logger (ADB+ACM; cmds: status, pstore, unbind, reboot-fb) ===\r\n";
     memcpy(ring, banner, sizeof(banner) - 1);
     fill = sizeof(banner) - 1;
 
@@ -450,14 +575,17 @@ static void run_logger_child(int kmsg_fd, int proc_fd, int bridge_fd, const char
                                 send_pstore_to_tty(tty_fd);
                             } else if (strcmp(cmd, "status") == 0) {
                                 char udc_cur[128] = "n/a";
-                                char sbuf[320];
+                                char sbuf[384];
                                 read_sys_str("/config/usb_gadget/g1/UDC", udc_cur, sizeof(udc_cur));
                                 int n = snprintf(
                                     sbuf, sizeof(sbuf),
-                                    "\r\n[status] new_root=%d hwc_bound=%d g1_switched=%d ep1=%d fb0=%d pstore=%d g1_UDC='%s'\r\n",
+                                    "\r\n[status] new_root=%d hwc_bound=%d g1_switched=%d ep1=%d dri=%d fb0=%d mali=%d ion=%d pstore=%d g1_UDC='%s'\r\n",
                                     in_new_root, hwc_bound, switched_to_g1,
                                     access("/dev/usb-ffs/adb/ep1", F_OK) == 0,
+                                    access("/dev/dri/card0", F_OK) == 0,
                                     access("/dev/graphics/fb0", F_OK) == 0,
+                                    access("/dev/mali0", F_OK) == 0,
+                                    access("/dev/ion", F_OK) == 0,
                                     access("/dev/.pstore_dump.log", F_OK) == 0,
                                     udc_cur);
                                 if (n > 0) (void)!write(tty_fd, sbuf, (size_t)n);
@@ -480,17 +608,32 @@ static void run_logger_child(int kmsg_fd, int proc_fd, int bridge_fd, const char
             if (rfd >= 0) {
                 if (fchdir(rfd) == 0 && chroot(".") == 0 && chdir("/") == 0) {
                     in_new_root = 1;
-                    klog_stage(5, "SwitchRoot complete; binding HWC empty stub + gralloc.fb0_bridge.so");
-                    setup_hwc_fb_fallback(&hwc_bound, &bridge_fd);
+                    load_zpd_modules(mod_fds, mod_loaded, "post-switchroot");
+                    stage_vendor_module_overrides(mod_fds);
+                    close_zpd_modules(mod_fds);
+
+                    int has_dri = (access("/dev/dri/card0", F_OK) == 0);
+                    for (int w = 0; !has_dri && w < 10; w++) {
+                        usleep(20000);
+                        has_dri = (access("/dev/dri/card0", F_OK) == 0);
+                    }
+                    if (has_dri) {
+                        klog_stage(5, "SwitchRoot complete; native DRM /dev/dri/card0 active (skipping simplefb HWC stub)");
+                        if (bridge_fd >= 0) {
+                            close(bridge_fd);
+                            bridge_fd = -1;
+                        }
+                    } else {
+                        klog_stage(5, "SwitchRoot complete; /dev/dri/card0 absent, binding HWC empty stub + gralloc.fb0_bridge.so");
+                        setup_hwc_fb_fallback(&hwc_bound, &bridge_fd);
+                    }
                 }
                 close(rfd);
             }
         }
 
-        if (in_new_root && !fb_chmed && access("/dev/graphics/fb0", F_OK) == 0) {
-            chmod("/dev/graphics/fb0", 0666);
-            fb_chmed = 1;
-            klog_stage(6, "/dev/graphics/fb0 ready (0666)");
+        if (in_new_root) {
+            ensure_dev_perms(&fb_chmed, &mali_chmed, &ion_chmed);
         }
 
         if (in_new_root && !switched_to_g1 &&
@@ -511,6 +654,7 @@ static void run_logger_child(int kmsg_fd, int proc_fd, int bridge_fd, const char
     if (switched_to_g1) {
         write_sys("/config/usb_gadget/g1/UDC", "\n");
     }
+    close_zpd_modules(mod_fds);
     if (bridge_fd >= 0) close(bridge_fd);
     if (proc_fd >= 0) close(proc_fd);
     if (tty_fd >= 0) close(tty_fd);
@@ -532,6 +676,11 @@ int main(int argc, char **argv) {
     klog_stage(1, "pre-init wrapper started (dev/sys/proc ready)");
     dump_pstore_early();
 
+    int mod_fds[ZPD_MOD_COUNT];
+    int mod_loaded[ZPD_MOD_COUNT];
+    open_zpd_modules(mod_fds, mod_loaded);
+    load_zpd_modules(mod_fds, mod_loaded, "pre-init");
+
     char hw_udc[256] = {0};
     if (find_hw_udc(hw_udc, sizeof(hw_udc), 25) < 0) {
         klog_stage(3, "no hardware UDC found early; will retry musb-hdrc after SwitchRoot");
@@ -552,11 +701,12 @@ int main(int argc, char **argv) {
     if (kmsg_fd >= 0 || proc_fd >= 0) {
         pid_t pid = fork();
         if (pid == 0) {
-            run_logger_child(kmsg_fd, proc_fd, bridge_fd, hw_udc);
+            run_logger_child(kmsg_fd, proc_fd, bridge_fd, mod_fds, mod_loaded, hw_udc);
         }
         usleep(50000);
     }
 
+    close_zpd_modules(mod_fds);
     if (bridge_fd >= 0) close(bridge_fd);
     if (kmsg_fd >= 0) close(kmsg_fd);
     if (proc_fd >= 0) close(proc_fd);

@@ -1,0 +1,215 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * ZPD1203 Display, Backlight, Himax Touch, and Mali GPU Device Tree Include
+ *
+ * Verified hardware sources (Phase 1 stock extraction + 5.10.240 reference):
+ * - Panel: HX83102-E/J jt120wul005_a01_dsi_vdo (1200x2000, 156x261 mm, 4-lane DSI)
+ * - Bias IC: Awinic AW37503 on I2C7 @ 0x3e (compatible "aw,aw37503" in stock DTBO)
+ * - Panel GPIOs: vdd18=GPIO165, bias-pos=GPIO153, bias-neg=GPIO70, reset=GPIO45
+ * - Backlight: MTK DISP_PWM0 (GPIO43) via mtk_ledspwm ("mediatek,pwm-leds")
+ * - Touch: Himax HX83102 SPI4 @ 0x0 ("himax,hxcommon"), CS/CLK/MO/MI=GPIO17..20,
+ *          IRQ=GPIO6. GPIO158 stays untouched to avoid resetting display.
+ * - GPU: Mali-G52 MC2 (0x13040000) + GED + MT6768 GPUFreq v2_legacy
+ */
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/pinctrl/mt6768-pinfunc.h>
+
+&framebuffer0 {
+	status = "disabled";
+};
+
+&pio {
+	zpd_disp_pwm_pins: zpd_disp_pwm_pins {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO43__FUNC_DISP_PWM>;
+		};
+	};
+
+	mtkfb_pins_lcm_rst_out1_gpio: mtkfb_pins_lcm_rst_out1_gpio {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO45__FUNC_GPIO45>;
+			slew-rate = <1>;
+			output-high;
+		};
+	};
+
+	mtkfb_pins_lcm_rst_out0_gpio: mtkfb_pins_lcm_rst_out0_gpio {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO45__FUNC_GPIO45>;
+			slew-rate = <1>;
+			output-low;
+		};
+	};
+
+	mtkfb_pins_lcm_dsi_te: mtkfb_pins_lcm_dsi_te {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO44__FUNC_DSI_TE>;
+		};
+	};
+
+	ts_spi_default: ts_spi_default {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO17__FUNC_GPIO17>,
+				 <PINMUX_GPIO18__FUNC_GPIO18>,
+				 <PINMUX_GPIO19__FUNC_GPIO19>,
+				 <PINMUX_GPIO20__FUNC_GPIO20>;
+			output-low;
+		};
+	};
+
+	ts_spi_active: ts_spi_active {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO17__FUNC_SPI4_MI>,
+				 <PINMUX_GPIO18__FUNC_SPI4_CSB>,
+				 <PINMUX_GPIO19__FUNC_SPI4_MO>,
+				 <PINMUX_GPIO20__FUNC_SPI4_CLK>;
+			drive-strength = <2>;
+		};
+	};
+
+	ts_int_active: ts_int_active {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO6__FUNC_GPIO6>;
+			input-enable;
+		};
+	};
+};
+
+&disp_pwm {
+	pinctrl-names = "default";
+	pinctrl-0 = <&zpd_disp_pwm_pins>;
+	status = "okay";
+};
+
+&mtk_leds {
+	compatible = "mediatek,pwm-leds";
+	backlight {
+		label = "lcd-backlight";
+		max-brightness = <255>;
+		max-hw-brightness = <1023>;
+		min-hw-brightness = <4>;
+		led-mode = <5>;
+		led_mode = <5>;
+		pwms = <&disp_pwm 0 39385>;
+		pwm-names = "lcd-backlight";
+		pwm_config = <0 3 0 0 0>;
+	};
+};
+
+&i2c7 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	clock-frequency = <400000>;
+	mediatek,use-open-drain;
+	status = "okay";
+
+	aw37503@3e {
+		compatible = "awinic,aw37503";
+		reg = <0x3e>;
+		status = "okay";
+
+		aw37503_outp: outp {
+			regulator-name = "aw37503-outp";
+			regulator-min-microvolt = <5800000>;
+			regulator-max-microvolt = <5800000>;
+			regulator-boot-on;
+		};
+
+		aw37503_outn: outn {
+			regulator-name = "aw37503-outn";
+			regulator-min-microvolt = <5800000>;
+			regulator-max-microvolt = <5800000>;
+			regulator-boot-on;
+		};
+	};
+};
+
+&dispsys_config {
+	pinctrl-names = "lcm_rst_out1_gpio", "lcm_rst_out0_gpio", "mode_te_te";
+	pinctrl-0 = <&mtkfb_pins_lcm_rst_out1_gpio>;
+	pinctrl-1 = <&mtkfb_pins_lcm_rst_out0_gpio>;
+	pinctrl-2 = <&mtkfb_pins_lcm_dsi_te>;
+	/delete-property/ interconnects;
+	/delete-property/ interconnect-names;
+	/delete-property/ dvfsrc-required-opps;
+	/delete-property/ mmdvfs-dvfsrc-vcore-supply;
+	status = "okay";
+};
+
+&dsi0 {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	panel: panel@0 {
+		compatible = "himax,jt120wul005-vdo";
+		reg = <0>;
+		vdd18-gpios = <&pio 165 GPIO_ACTIVE_HIGH>;
+		bias-pos-gpios = <&pio 153 GPIO_ACTIVE_HIGH>;
+		bias-neg-gpios = <&pio 70 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&pio 45 GPIO_ACTIVE_HIGH>;
+		vpos-supply = <&aw37503_outp>;
+		vneg-supply = <&aw37503_outn>;
+		status = "okay";
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&dsi_out>;
+			};
+		};
+	};
+
+	ports {
+		port {
+			dsi_out: endpoint {
+				remote-endpoint = <&panel_in>;
+			};
+		};
+	};
+};
+
+&spi4 {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	zlt_ts@0 {
+		compatible = "himax,hxcommon";
+		reg = <0>;
+		spi-max-frequency = <9600000>;
+		pinctrl-names = "default", "active";
+		pinctrl-0 = <&ts_spi_default>;
+		pinctrl-1 = <&ts_spi_active &ts_int_active>;
+		himax,zpd1203-touch;
+		himax,panel-coords = <0 1200 0 2000>;
+		himax,display-coords = <1200 2000>;
+		report_type = <1>;
+		himax,irq-gpio = <&pio 6 GPIO_ACTIVE_HIGH>;
+		status = "okay";
+	};
+};
+
+&mali {
+	status = "okay";
+};
+
+&ged {
+	status = "okay";
+};
+
+&gpufreq {
+	status = "okay";
+};
+
+&gpufreq_wrapper {
+	status = "okay";
+};
+
+&gpu_mali_opp {
+	status = "okay";
+};
+
+&gpu_dvfs_prefence {
+	status = "okay";
+};

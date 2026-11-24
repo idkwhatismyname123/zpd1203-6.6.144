@@ -1,0 +1,25 @@
+From 34be3f285fd5ab9bc6f83d569b3f899bbe2e471f Mon Sep 17 00:00:00 2001
+From: ZPD1203 Kernel Port <zpd1203@localhost>
+Date: Tue, 24 Nov 2026 20:53:09 +1000
+Subject: [PATCH] regulator: aw37503: add aw,aw37503 compatible string for
+ ZPD1203
+
+---
+ drivers/regulator/aw37503-regulator.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/regulator/aw37503-regulator.c b/drivers/regulator/aw37503-regulator.c
+index a5ff6dfd2..88313ce29 100644
+--- a/drivers/regulator/aw37503-regulator.c
++++ b/drivers/regulator/aw37503-regulator.c
+@@ -219,6 +219,7 @@ MODULE_DEVICE_TABLE(i2c, aw37503_id);
+ 
+ static const struct of_device_id aw37503_of_match[] = {
+ 	{.compatible = "awinic,aw37503",},
++	{.compatible = "aw,aw37503",},
+ 	{ /* Sentinel */ },
+ };
+ 
+-- 
+2.53.0
+

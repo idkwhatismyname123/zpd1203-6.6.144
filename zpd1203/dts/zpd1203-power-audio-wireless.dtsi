@@ -1,0 +1,148 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * ZPD1203 Step 5B Device Tree additions:
+ * - SGM41510 (BQ2589x register-compatible) charger on I2C5 @ 0x6b + OTG VBUS
+ * - AW35615 Type-C PD controller on I2C6 @ 0x22 + extcon_usb / mtk_ctd
+ * - MT6358 Fuel Gauge + mtk-master-charger + battery-manager
+ * - MT6768 ASoC + MT6358 Codec + ACCDET + AW87XXX SmartPA on I2C3 @ 0x59 / 0x5A
+ * - MT6768 Connsys Wi-Fi/BT regulators + antenna swap + BTIF
+ */
+
+&i2c3 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	clock-frequency = <400000>;
+	status = "okay";
+
+	aw87xxx_pa@59 {
+		compatible = "awinic,aw87xxx_pa";
+		reg = <0x59>;
+		dev_index = <0>;
+		status = "okay";
+	};
+
+	aw87xxx_pa@5A {
+		compatible = "awinic,aw87xxx_pa";
+		reg = <0x5a>;
+		dev_index = <1>;
+		status = "okay";
+	};
+};
+
+&i2c5 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	clock-frequency = <400000>;
+	status = "okay";
+
+	sgm41510: sgm41510@6b {
+		compatible = "sgm,sgm41510";
+		reg = <0x6b>;
+		status = "okay";
+		charger_name = "primary_chg";
+		charger = <&sgm41510>;
+		bootmode = <&chosen>;
+		sgm,irq-gpio = <&pio 26 0>;
+		sgm,chg-en-gpio = <&pio 166 0>;
+		sgm,charge-current = <2040000>;
+		sgm,battery-regulation-voltage = <4336000>;
+		sgm,termination-current = <192000>;
+		sgm,precharge-current = <128000>;
+		sgm,minimum-sys-voltage = <3500000>;
+		sgm,boost-voltage = <4998000>;
+		sgm,boost-max-current = <2400000>;
+		sgm,en-ilim = <1>;
+
+		sgm41510_vbus: usb_otg_vbus {
+			regulator-name = "usb_otg_vbus";
+			regulator-min-microvolt = <5000000>;
+			regulator-max-microvolt = <5150000>;
+		};
+	};
+};
+
+&i2c6 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	clock-frequency = <400000>;
+	status = "okay";
+
+	aw35615@22 {
+		compatible = "awinic,aw35615";
+		reg = <0x22>;
+		status = "okay";
+		awinic,int_n = <&pio 8 0>;
+		aw35615-id-gpio = <&pio 159 0>;
+		pd_stop_battery_soc = <80>;
+		aw35615,snk_pdo_size = <1>;
+		aw35615,snk_pdo_vol = <5000>;
+		aw35615,snk_pdo_cur = <2000>;
+		aw35615,src_pdo_size = <1>;
+		aw35615,src_pdo_vol = <5000>;
+		aw35615,src_pdo_cur = <2000>;
+	};
+};
+
+&mtk_gauge {
+	charger = <&sgm41510>;
+	status = "okay";
+};
+
+&battery_manager {
+	charger = <&sgm41510>;
+	gauge1 = <&mtk_gauge>;
+	status = "okay";
+};
+
+&charger {
+	charger = <&sgm41510>;
+	bootmode = <&chosen>;
+	enable_type_c;
+	power_path_support;
+	battery_cv = <4336000>;
+	max_charger_voltage = <10000000>;
+	min_charger_voltage = <4400000>;
+	usb_charger_current = <500000>;
+	ac_charger_current = <2000000>;
+	ac_charger_input_current = <2000000>;
+	status = "okay";
+};
+
+&mtk_ctd {
+	bc12-psy-port0 = <&sgm41510>;
+	status = "okay";
+};
+
+&extcon_usb {
+	charger = <&sgm41510>;
+	vbus-supply = <&sgm41510_vbus>;
+	id-gpios = <&pio 41 0>;
+	status = "okay";
+};
+
+&usb {
+	dr_mode = "otg";
+	status = "okay";
+};
+
+&sound {
+	compatible = "mediatek,mt6768-mt6358-sound";
+	mediatek,platform = <&afe>;
+	mediatek,audio-codec = <&mt6358codec>;
+	mtk_spk_i2s_out = <3>;
+	mtk_spk_i2s_in = <0>;
+	status = "okay";
+
+	mediatek,speaker-codec {
+		sound-dai = <&snd_scp_spk>;
+	};
+};
+
+&accdet {
+	status = "okay";
+};
+
+&consys {
+	wifi_ant_swap_gpio = <&pio 108 0>;
+	status = "okay";
+};

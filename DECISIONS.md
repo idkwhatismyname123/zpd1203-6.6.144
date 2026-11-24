@@ -3,34 +3,38 @@
 ## ADR-001：工作目录隔离策略（Windows 控制仓 + WSL2 ext4 构建区）
 - **日期**：2026-11-24
 - **决策**：项目管理文档、分析报告、DTS/DTSI、defconfig、补丁集、自动化脚本及最终发布产物存放在 Windows `d:\P3066` 并纳入 Git 管理；内核源码克隆、原厂镜像解包及内核编译全部在 WSL2 ext4 文件系统 `/home/asus/zpd1203-6.6/` 中执行。
-- **原因**：
-  1. Linux 内核源码包含仅大小写不同的文件（如 `net/netfilter/xt_DSCP.c` 与 `xt_dscp.c`）以及大量符号链接，NTFS (`/mnt/d`) 默认大小写不敏感且跨 9P IO 性能极差。
-  2. 现有 WSL2 目录 `/home/asus/zpd1203-5.10.240` 与原厂备份 `D:\备份\p\GeekFlashTool_Readback_20260820162108246` 必须绝对保持不受破坏/只读。
+- **原因**：Linux 内核源码依赖大小写敏感与符号链接；`/home/asus/zpd1203-5.10.240` 与原厂备份 `D:\备份\p\GeekFlashTool_Readback_20260820162108246` 必须绝对保持只读与完整。
 
 ## ADR-002：选定 Linux 6.6.144 (`android15-6.6`) + `Addster09` BSP + Moto GPU/Connsys 为移植基底
 - **日期**：2026-11-24
-- **状态**：已定案（Phase 1 + Phase 2 实证完毕）
+- **状态**：已定案（Phase 1–7 全程实证）
 - **决策**：
-  - **Core Kernel**：`https://android.googlesource.com/kernel/common` 分支 `android15-6.6`（`329f9ae918a9e18da3c488e531adf9b7995e2aae` = **Linux 6.6.144**）。
-  - **MT6768 `device_modules`**：`https://github.com/Addster09/mtk-kernel-modules-bsp-6.6`（`android15-6.6`, `1561b421959f`）为主，交叉比对 `https://github.com/MotorolaMobilityLLC/kernel-kernel_device_modules-6.6`（`android-15-release-v1tl35.73-60-3`, `9b049a46b9fc`）。
-  - **GPU**：`https://github.com/MotorolaMobilityLLC/vendor-mediatek-kernel_modules-gpu`（`v1tl35.73-60-3`, `3b81cf6d7c0a`）中的 **`mali_valhall/mali-r32p1`** (`r32p1-01eac0`)。
-  - **Connsys 无线**：Motorola `vvta35` (`common`, `bt-mt66xx`, `connfem`, `wlan-adaptor`) + `v1tl35.73-60-3` (`wlan-core-gen4m`)，辅以 `vvob35` (`fmradio`/`gps`)。
-- **技术依据（详见 `analysis/phase2_bsp_survey.md`）**：
-  1. **否决 Linux 6.1**：`MotorolaMobilityLLC/kernel-kernel_device_modules-6.1` 完全不含 MT6768 代码；Linux 6.6 拥有完整 MT6768 BSP。
-  2. **否决 Samsung `android_kernel_samsung_mt6768` / `a05m-kernel-6.6` 整树**：包含 135 个 Samsung DEFEX/FIVE/PROCA 安全文件、42 个核心挂钩、强制 `CONFIG_AUTOFDO_CLANG=y` 阻塞无 profile 构建，且缺失 `mali-r32p1`（仅带 `r49p1`）；仅在局部参考其 `hx83112f` 6.6 触控 API 适配。
-  3. **否决 `Mayuri-Chan` (`6.6.30`)**：核心 `6.6.30` 在宿主机 `clang-21` + glibc 2.43 下 `resolve_btfids/libbpf.c` 编译报错，且设备模块缺失 2024-09 至 2026-07 修复。
-  4. **选定组合决定性优势**：宿主机 `clang-21.1.8` 纯 Kbuild 一次编过 `modules_prepare`、`mt6768.dtb`、核心 MT6768 驱动及全部 5 大 Connsys 无线模块；`Addster09` 原生自带 ZPD1203 硬件所需的 `sgm415xx.c` + `aw35615` + 干净 `mtk_battery.c`，`aosp-6.6` 原生自带 `wusb3801.c` + `aw37503-regulator.c`，Motorola GPU 仓唯一保留与原厂 `libGLES_mali.so` 完全一致的 **`r32p1-01eac0`**。
+  - **Core Kernel**：`https://android.googlesource.com/kernel/common` 分支 `android15-6.6`（基线 `329f9ae918a9` **Linux 6.6.144** -> `91af1aa18e1a`）。
+  - **MT6768 `device_modules`**：`https://github.com/Addster09/mtk-kernel-modules-bsp-6.6`（基线 `1561b421959f` -> `8ed4bf689504`）为主，交叉比对 Moto `v1tl35.73-60-3`。
+  - **GPU**：`https://github.com/MotorolaMobilityLLC/vendor-mediatek-kernel_modules-gpu`（`3b81cf6d7c0a` -> `2d3b928b88ce`）中的 **`mali_valhall/mali-r32p1`** (`r32p1-01eac0`)。
+  - **Connsys 无线**：Motorola `vvta35` (`common` `0fd4f365ead4`, `connfem` `8a665a04c769`, `bt-mt66xx` `95859aaae7f4`, `wlan-adaptor` `48e9f37a18b7`) + `v1tl35.73-60-3` (`wlan-core-gen4m` `0eb4c16595f3`)。
+- **依据**：Linux 6.1 Moto 仓库不含 MT6768；Samsung 树带 DEFEX/AFDO 且缺失 `mali-r32p1`；本组合在宿主机 `clang-21.1.8` + `ld.lld` 下 0 错误编译，且精准匹配原厂 `libGLES_mali.so` (`r32p1-01eac0`)、SGM41510 与 AW35615。
 
-## ADR-003：Android Boot v2 打包基线、纯净 Ramdisk 来源与内建模块 (`ALLOW_BUILTIN`) 策略
+## ADR-003：Android Boot v2 打包基线、纯净 Ramdisk 与 `ALLOW_BUILTIN` 策略
 - **日期**：2026-11-24
 - **决策**：
-  1. 使用 **Android Boot Image Header v2**（`page_size=2048`, `kernel=0x40080000`, `ramdisk=0x47c80000`, `dtb=0x4bc80000`, `os_version=12.0.0`），并从 **`vendor_boot_a.img`**（字节级纯净原厂 4.19 `boot.img`）提取基础 ramdisk（避免 `boot_a.img` 中的 Magisk 残留）。
-  2. 在 `kernel-6.6/drivers/Makefile` 末尾接入 1 行 `include $(srctree)/$(KCONFIG_EXT_PREFIX)Makefile.ext` 并启用 `CONFIG_DEVICE_MODULES_ALLOW_BUILTIN=y`，使核心启动/时钟/PMIC/存储/USB/触控/电源驱动直接编译进 `Image.gz`（控制 `boot.img < 32 MiB` 限制内，同时避免 5.10 中 115 个 `=m` 未打包陷阱）；Connsys 无线等仍编为与 `Image.gz` 严格同版本 `vermagic` 的 `.ko` 模块。
-  3. `ramoops/pstore` 固定映射与 LK 实机日志一致的物理区间 **`0x4d010000` (`0xe0000`)**。
+  1. 采用 Android Boot Header v2（`page_size=2048`, `kernel=0x40080000`, `ramdisk=0x47c80000`, `dtb=0x4bc80000`），从纯净原厂 `vendor_boot_a.img` 提取 Ramdisk（剔除 `.backup`/`overlay.d` Magisk 残留）。
+  2. 集成 `DEVICE_MODULES_ALLOW_BUILTIN=y`，核心 SoC/显示/触控/音频/充电/存储驱动全部内置；OOT Mali 与无线驱动编译为 `.ko` 并经 `vermagic`/CRC/符号闭环校验。
+  3. 固化 `KBUILD` 强制传参规则：所有 `make -C $KDIR O=$OUT` 调用均须显式传递 `KCONFIG_EXT_PREFIX=../kernel_device_modules-6.6/`，防止 `syncconfig` 误删外部配置符号。
 
-## ADR-004：USB 控制器选型 (`musb-hdrc` vs `mtu3`) 与显示 / GPU / ION 兼容路线
+## ADR-004：显示/GPU/充电多器件真实驱动路线（拒绝虚假桩）
 - **日期**：2026-11-24
 - **决策**：
-  1. **USB 优先对接 `musb-hdrc` (`drivers/misc/mediatek/usb/usb20/`)**：原厂 `init.mt6768.usb.rc` 与 `android.hardware.usb@1.2` HAL 硬编码 `"musb-hdrc"` 且 6.6 `Addster09`/`Moto` 树完整保留 `usb20`；同时打通 `sgm41510@6b` + `aw35615@22` + `wusb3801@60` + `extcon_usb` + `mt6358_gauge` 完整充电状态上报链。
-  2. **显示双阶段推进**：Phase 4 最小启动使用 `simplefb`（`0x7d350000`，继承 5.10 清除 OVL0 L3 `0x1400b000+0x02c` 修复）+ `gralloc_fb0_bridge` 确保第一时间无串口进入可视/ADB 环境；Phase 5 推进 6.6 MTK DRM v2 + `jt120wul005_a01_dsi_vdo` (`HX83102-E/J`) + `aw37503` + 背光与 Android HWC 兼容方案。
-  3. **GPU & ION 严守真硬件原则**：启用 `mali-r32p1` + `ged` + `gpufreq` + `mtk_iommu` + `mtk-smi` 对齐原厂 `libGLES_mali.so` (`r32p1-01eac0`)；针对 6.6 移除 `staging/ion` 但原厂 `Codec2`/`libion_mtk` 依赖 `/dev/ion` `BIT(10)` 的问题，Phase 6 实现由真实 `dma_heap` (`mtk_mm`) 支撑的 `/dev/ion` 兼容层（绝不伪造桩函数）。
+  1. `usb20` (`musb-hdrc`) + `bq2589x_charger.c` 扩展 `sgm,sgm41510`（同时修复 `!mt_usb_is_device()` OTG 互斥死锁与 `usb`/`ac` PSY 导出）+ 5 处 `Makefile` 适配 `tcpc_aw/inc` + `aw35615`。
+  2. 诚实标注二供 `fs15xx`（6.6 `fs18xx` 不支持）、`wusb3801`（与 `aw35615` 共用 GPIO 8 冲突）、I2C1 传感器（无开源 6.6 驱动）及摄像头（EL2 `/dev/gz_kree` + 缺 `hi849`/`aw36515`）现状，严禁用虚假桩函数欺骗状态。
+
+## ADR-005：`/dev/ion` -> DMA-BUF Heap 真实转发兼容层（Phase 6）
+- **日期**：2026-11-24
+- **决策**：在 `kernel_device_modules-6.6/drivers/dma-buf/heaps/` 实现 `mtk_ion_compat.c`（`CONFIG_ZPD1203_ION_DMABUF_COMPAT=y`），启用 `CONFIG_DEVICE_MODULES_DMABUF_HEAPS_SYSTEM=y` 并显式禁用上游 `# CONFIG_DMABUF_HEAPS_SYSTEM is not set` 防止 `"system"` 堆重名冲突；`/dev/ion` 接收 ABI v2 ioctl 并通过内核 `dma_heap_find()` + `dma_heap_bufferfd_alloc()` 真实分配与返回 `dma_buf` fd（`BIT(10)` -> `mtk_mm`/`mtk_mm-uncached`，`BIT(0)` -> `system`/`system-uncached`，未定义 ioctl 返回 `-ENOTTY`）。
+
+## ADR-006：全量 Ramdisk `xz` 压缩与 `a12_init_wrapper` DRM/FB 动态分流（Phase 6–7）
+- **日期**：2026-11-24
+- **决策**：
+  1. 在 `zpd1203_defconfig` 启用 `CONFIG_RD_XZ=y`，使含 11 枚 stripped `.ko` 的 `initramfs-full-6.6.cpio.xz` 控制在 `12,343,696 B`（`boot-full-6.6.raw.img` = `28,213,248 B`，在 32 MiB 上限下保留 5+ MiB 冗余），无需删除恢复界面资源。
+  2. `a12_init_wrapper.c` 在预启动和 `SwitchRoot` 后通过保持只读 fd 跨根切换加载并 `MS_BIND` 替换 `/vendor/lib/modules`；依据 `/dev/dri/card0` 存在性动态决定启用原生 DRM 链路或自动挂载 `simplefb` + `gralloc.fb0_bridge.so` 桥接。
+  3. 同步保存 standalone `zpd1203_defconfig` 至 `kernel-6.6` 与 `kernel_device_modules-6.6` 两仓 `arch/arm64/configs/`（兼容 Kbuild `%_defconfig` `srctree` 查找规则），并实现 14 份自动化构建/校验/测试/恢复/日志脚本。

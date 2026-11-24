@@ -1,0 +1,602 @@
+From f0ee0c1272371f174fa2ef31742d97ef62dba946 Mon Sep 17 00:00:00 2001
+From: ZPD1203 Kernel Port <zpd1203@localhost>
+Date: Tue, 24 Nov 2026 21:14:32 +1000
+Subject: [PATCH 1/2] zpd1203: charger/typec: add SGM41510 support and fix
+ tcpc_aw include selection
+
+---
+ drivers/misc/mediatek/extcon/Makefile         |   4 +
+ drivers/misc/mediatek/typec/mux/Makefile      |   4 +
+ drivers/misc/mediatek/usb/usb20/Makefile      |   4 +
+ .../mediatek/usb/usb20/musb_main/Makefile     |   4 +
+ drivers/power/supply/Makefile                 |   4 +
+ drivers/power/supply/bq2589x_charger.c        | 292 ++++++++++++------
+ drivers/power/supply/bq2589x_reg.h            |   6 +
+ 7 files changed, 229 insertions(+), 89 deletions(-)
+
+diff --git a/drivers/misc/mediatek/extcon/Makefile b/drivers/misc/mediatek/extcon/Makefile
+index f6425f0..a4354d9 100644
+--- a/drivers/misc/mediatek/extcon/Makefile
++++ b/drivers/misc/mediatek/extcon/Makefile
+@@ -1,5 +1,9 @@
+ # SPDX-License-Identifier: GPL-2.0
+ 
++ifeq ($(CONFIG_AW_USBPD),y)
++ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/typec/tcpc_aw/inc
++else
+ ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/typec/tcpc/inc
++endif
+ 
+ obj-$(CONFIG_EXTCON_MTK_USB) += extcon-mtk-usb.o
+diff --git a/drivers/misc/mediatek/typec/mux/Makefile b/drivers/misc/mediatek/typec/mux/Makefile
+index ea6fd4d..3b99d58 100644
+--- a/drivers/misc/mediatek/typec/mux/Makefile
++++ b/drivers/misc/mediatek/typec/mux/Makefile
+@@ -1,7 +1,11 @@
+ # SPDX-License-Identifier: GPL-2.0
+ 
+ ccflags-y += -I$(srctree)/drivers/usb/typec
++ifeq ($(CONFIG_AW_USBPD),y)
++ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/typec/tcpc_aw/inc
++else
+ ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/typec/tcpc/inc
++endif
+ CFLAGS_pi3dpx1205a.o += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/typec/mux
+ 
+ obj-$(CONFIG_MTK_USB_TYPEC_MUX) += mux_switch.o
+diff --git a/drivers/misc/mediatek/usb/usb20/Makefile b/drivers/misc/mediatek/usb/usb20/Makefile
+index d80e120..00d0747 100644
+--- a/drivers/misc/mediatek/usb/usb20/Makefile
++++ b/drivers/misc/mediatek/usb/usb20/Makefile
+@@ -34,8 +34,12 @@ ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/usb/usb20/
+ 
+ # for typec event
+ ifeq ($(CONFIG_TCPC_CLASS),$(filter $(CONFIG_TCPC_CLASS),m y))
++ifeq ($(CONFIG_AW_USBPD),y)
++	ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/typec/tcpc_aw/inc
++else
+ 	ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/typec/tcpc/inc
+ endif
++endif
+ 
+ # define_trace.h needs to know how to find our header
+ CFLAGS_musb_trace.o	:= -I$(src)
+diff --git a/drivers/misc/mediatek/usb/usb20/musb_main/Makefile b/drivers/misc/mediatek/usb/usb20/musb_main/Makefile
+index 57bd9be..2d584b3 100644
+--- a/drivers/misc/mediatek/usb/usb20/musb_main/Makefile
++++ b/drivers/misc/mediatek/usb/usb20/musb_main/Makefile
+@@ -26,8 +26,12 @@ ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/base/power/include/
+ # for TYPEC connection management
+ ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/typec/inc
+ ifeq ($(CONFIG_TCPC_CLASS),y)
++ifeq ($(CONFIG_AW_USBPD),y)
++	ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/typec/tcpc_aw/inc
++else
+ 	ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/typec/tcpc/inc
+ endif
++endif
+ # for ep0 test
+ ccflags-y += -I$(srctree)/drivers/usb/core/
+ ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/usb/usb20
+diff --git a/drivers/power/supply/Makefile b/drivers/power/supply/Makefile
+index d492641..343967f 100644
+--- a/drivers/power/supply/Makefile
++++ b/drivers/power/supply/Makefile
+@@ -1,7 +1,11 @@
+ # SPDX-License-Identifier: GPL-2.0
+ subdir-ccflags-$(CONFIG_POWER_SUPPLY_DEBUG) := -DDEBUG
+ subdir-ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/usb/usb20/
++ifeq ($(CONFIG_AW_USBPD),y)
++subdir-ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/typec/tcpc_aw/inc
++else
+ subdir-ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/typec/tcpc/inc
++endif
+ subdir-ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/power_throttling
+ subdir-ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/include
+ subdir-ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/power/supply/ufcs
+diff --git a/drivers/power/supply/bq2589x_charger.c b/drivers/power/supply/bq2589x_charger.c
+index b6de67a..f7cbc0e 100644
+--- a/drivers/power/supply/bq2589x_charger.c
++++ b/drivers/power/supply/bq2589x_charger.c
+@@ -73,6 +73,7 @@ enum {
+ 	PN_BQ25895,
+ 	PN_SYV6970QCC,
+ 	PN_SC89890H,
++	PN_SGM41510,
+ };
+ 
+ static const u32 bq2589x_otg_oc_threshold[] __maybe_unused = {
+@@ -85,6 +86,7 @@ static int pn_data[] = {
+ 	[PN_BQ25895] = 0x07,
+ 	[PN_SYV6970QCC] = 0X01,
+ 	[PN_SC89890H] = 0x04,
++	[PN_SGM41510] = 0x00,
+ };
+ 
+ static const struct charger_properties bq2589x_chg_props = {
+@@ -223,9 +225,11 @@ static int bq2589x_disable_hvdcp(struct bq2589x *bq)
+ static int bq2589x_enable_charger(struct bq2589x *bq)
+ {
+ 	int ret;
+-
+ 	u8 val = BQ2589X_CHG_ENABLE << BQ2589X_CHG_CONFIG_SHIFT;
+ 
++	if (gpio_is_valid(bq->chg_en_gpio))
++		gpio_set_value(bq->chg_en_gpio, 0);
++
+ 	ret = bq2589x_update_bits(bq, BQ2589X_REG_03,
+ 				BQ2589X_CHG_CONFIG_MASK, val);
+ 	return ret;
+@@ -234,9 +238,11 @@ static int bq2589x_enable_charger(struct bq2589x *bq)
+ static int bq2589x_disable_charger(struct bq2589x *bq)
+ {
+ 	int ret;
+-
+ 	u8 val = BQ2589X_CHG_DISABLE << BQ2589X_CHG_CONFIG_SHIFT;
+ 
++	if (gpio_is_valid(bq->chg_en_gpio))
++		gpio_set_value(bq->chg_en_gpio, 1);
++
+ 	ret = bq2589x_update_bits(bq, BQ2589X_REG_03,
+ 				BQ2589X_CHG_CONFIG_MASK, val);
+ 	return ret;
+@@ -917,101 +923,114 @@ static struct bq2589x_platform_data *bq2589x_parse_dt(struct device_node *np,
+ 	}
+ 
+ 	bq->chg_det_enable =
+-		of_property_read_bool(np, "ti,bq2589x,charge-detect-enable");
++		of_property_read_bool(np, "ti,bq2589x,charge-detect-enable") ||
++		of_device_is_compatible(np, "sgm,sgm41510");
+ 
+ 	ret = of_property_read_u32(np, "ti,bq2589x,usb-vlim", &pdata->usb.vlim);
+-	if (ret) {
++	if (ret)
+ 		pdata->usb.vlim = 4500;
+-		pr_info("Failed to read node of ti,bq2589x,usb-vlim\n");
+-	}
+ 
+ 	ret = of_property_read_u32(np, "ti,bq2589x,usb-ilim", &pdata->usb.ilim);
+-	if (ret) {
++	if (ret)
+ 		pdata->usb.ilim = 2000;
+-		pr_info("Failed to read node of ti,bq2589x,usb-ilim\n");
+-	}
+ 
+ 	ret = of_property_read_u32(np, "ti,bq2589x,usb-vreg", &pdata->usb.vreg);
+ 	if (ret) {
+-		pdata->usb.vreg = 4200;
+-		pr_info("Failed to read node of ti,bq2589x,usb-vreg\n");
++		u32 vreg_uv = 0;
++		if (!of_property_read_u32(np, "sgm,battery-regulation-voltage", &vreg_uv) && vreg_uv > 0)
++			pdata->usb.vreg = vreg_uv / 1000;
++		else
++			pdata->usb.vreg = 4200;
+ 	}
+ 
+ 	ret = of_property_read_u32(np, "ti,bq2589x,usb-ichg", &pdata->usb.ichg);
+ 	if (ret) {
+-		pdata->usb.ichg = 2000;
+-		pr_info("Failed to read node of ti,bq2589x,usb-ichg\n");
++		u32 ichg_ua = 0;
++		if (!of_property_read_u32(np, "sgm,charge-current", &ichg_ua) && ichg_ua > 0)
++			pdata->usb.ichg = ichg_ua / 1000;
++		else
++			pdata->usb.ichg = 2000;
+ 	}
+ 
+-	ret = of_property_read_u32(np, "ti,bq2589x,precharge-current",
+-				   &pdata->iprechg);
++	ret = of_property_read_u32(np, "ti,bq2589x,precharge-current", &pdata->iprechg);
+ 	if (ret) {
+-		pdata->iprechg = 180;
+-		pr_info("Failed to read node of ti,bq2589x,precharge-current\n");
++		u32 ipre_ua = 0;
++		if (!of_property_read_u32(np, "sgm,precharge-current", &ipre_ua) && ipre_ua > 0)
++			pdata->iprechg = ipre_ua / 1000;
++		else
++			pdata->iprechg = 180;
+ 	}
+ 
+-	ret = of_property_read_u32(np, "ti,bq2589x,termination-current",
+-				   &pdata->iterm);
++	ret = of_property_read_u32(np, "ti,bq2589x,termination-current", &pdata->iterm);
+ 	if (ret) {
+-		pdata->iterm = 270;
+-		pr_info
+-			("Failed to read node of ti,bq2589x,termination-current\n");
++		u32 iterm_ua = 0;
++		if (!of_property_read_u32(np, "sgm,termination-current", &iterm_ua) && iterm_ua > 0)
++			pdata->iterm = iterm_ua / 1000;
++		else
++			pdata->iterm = 270;
+ 	}
+ 
+-	ret =
+-		of_property_read_u32(np, "ti,bq2589x,boost-voltage",
+-				 &pdata->boostv);
++	ret = of_property_read_u32(np, "ti,bq2589x,boost-voltage", &pdata->boostv);
+ 	if (ret) {
+-		pdata->boostv = 5000;
+-		pr_info("Failed to read node of ti,bq2589x,boost-voltage\n");
++		u32 boost_uv = 0;
++		if (!of_property_read_u32(np, "sgm,boost-voltage", &boost_uv) && boost_uv > 0)
++			pdata->boostv = boost_uv / 1000;
++		else
++			pdata->boostv = 5000;
+ 	}
+ 
+-	ret =
+-		of_property_read_u32(np, "ti,bq2589x,boost-current",
+-				 &pdata->boosti);
++	ret = of_property_read_u32(np, "ti,bq2589x,boost-current", &pdata->boosti);
+ 	if (ret) {
+-		pdata->boosti = 2400;
+-		pr_info("Failed to read node of ti,bq2589x,boost-current\n");
++		u32 boost_ua = 0;
++		if (!of_property_read_u32(np, "sgm,boost-max-current", &boost_ua) && boost_ua > 0)
++			pdata->boosti = boost_ua / 1000;
++		else
++			pdata->boosti = 2400;
+ 	}
+-	bq->otg_enable_pin = of_get_named_gpio(np, "ti,otg-en-gpio", 0);
+-	if (bq->otg_enable_pin < 0)
+-		pr_info("of get ti,otg-en-gpio failed, ti,otg-en-gpio:%d\n", bq->otg_enable_pin);
+ 
+-	if (gpio_request(bq->otg_enable_pin, "otg_enable_pin")) {
+-		pr_info("reset otg_enable_pin failed\n");
++	bq->chg_en_gpio = of_get_named_gpio(np, "sgm,chg-en-gpio", 0);
++	if (gpio_is_valid(bq->chg_en_gpio)) {
++		if (devm_gpio_request_one(bq->dev, bq->chg_en_gpio,
++					  GPIOF_OUT_INIT_LOW, "sgm_chg_en"))
++			dev_warn(bq->dev, "request sgm,chg-en-gpio %d failed\n", bq->chg_en_gpio);
+ 	}
+-	if (gpio_direction_output(bq->otg_enable_pin, 0))
+-		pr_info("otg_enable_pin gpio_direction_output reset_pin failed\n");
+ 
+-	bq->otg_en2_pin = of_get_named_gpio(np, "ti,otg-en2-gpio", 0);
+-	if (bq->otg_en2_pin < 0)
+-		pr_info("of get otg_en2_pin failed, otg_en2_pin:%d\n", bq->otg_en2_pin);
++	bq->irq_gpio = of_get_named_gpio(np, "sgm,irq-gpio", 0);
++	if (bq->client->irq > 0) {
++		bq->irq = bq->client->irq;
++	} else if (gpio_is_valid(bq->irq_gpio)) {
++		if (!devm_gpio_request_one(bq->dev, bq->irq_gpio,
++					   GPIOF_DIR_IN, "sgm_chg_irq"))
++			bq->irq = gpio_to_irq(bq->irq_gpio);
++	}
+ 
+-	if (gpio_request(bq->otg_en2_pin, "otg_en2_pin")) {
+-		pr_info("reset otg_enable_pin failed\n");
++	bq->otg_enable_pin = of_get_named_gpio(np, "ti,otg-en-gpio", 0);
++	if (gpio_is_valid(bq->otg_enable_pin)) {
++		if (devm_gpio_request_one(bq->dev, bq->otg_enable_pin,
++					  GPIOF_OUT_INIT_LOW, "otg_enable_pin"))
++			dev_dbg(bq->dev, "request otg_enable_pin failed\n");
+ 	}
+-	if (gpio_direction_output(bq->otg_en2_pin, 0))
+-		pr_info("otg_en2_pin gpio_direction_output reset_pin failed\n");
+ 
+-	bq->otg_sgm6111_pin = of_get_named_gpio(np, "ti,otg-sgm6111-gpio", 0);
+-	if (bq->otg_sgm6111_pin < 0)
+-		pr_info("of get otg_en2_pin failed, otg_sgm6111_pin:%d\n", bq->otg_sgm6111_pin);
++	bq->otg_en2_pin = of_get_named_gpio(np, "ti,otg-en2-gpio", 0);
++	if (gpio_is_valid(bq->otg_en2_pin)) {
++		if (devm_gpio_request_one(bq->dev, bq->otg_en2_pin,
++					  GPIOF_OUT_INIT_LOW, "otg_en2_pin"))
++			dev_dbg(bq->dev, "request otg_en2_pin failed\n");
++	}
+ 
+-	if (gpio_request(bq->otg_sgm6111_pin, "otg_sgm6111_pin")) {
+-		pr_info("reset otg_enable_pin failed\n");
++	bq->otg_sgm6111_pin = of_get_named_gpio(np, "ti,otg-sgm6111-gpio", 0);
++	if (gpio_is_valid(bq->otg_sgm6111_pin)) {
++		if (devm_gpio_request_one(bq->dev, bq->otg_sgm6111_pin,
++					  GPIOF_OUT_INIT_LOW, "otg_sgm6111_pin"))
++			dev_dbg(bq->dev, "request otg_sgm6111_pin failed\n");
+ 	}
+-	if (gpio_direction_output(bq->otg_sgm6111_pin, 0))
+-		pr_info("otg_sgm6111_pin gpio_direction_output reset_pin failed\n");
+ 
+ 	bq->otg_ocflag_pin = of_get_named_gpio(np, "ti,otg-ocflag-gpio", 0);
+-	if (bq->otg_ocflag_pin < 0)
+-		pr_info("of get otg_ocflag_pin failed, otg_ocflag_pin:%d\n", bq->otg_ocflag_pin);
+-
+-	if (gpio_request(bq->otg_ocflag_pin, "otg_ocflag_pin")) {
+-		pr_info("reset otg_ocflag_pin failed\n");
++	if (gpio_is_valid(bq->otg_ocflag_pin)) {
++		if (devm_gpio_request_one(bq->dev, bq->otg_ocflag_pin,
++					  GPIOF_OUT_INIT_LOW, "otg_ocflag_pin"))
++			dev_dbg(bq->dev, "request otg_ocflag_pin failed\n");
+ 	}
+-	if (gpio_direction_output(bq->otg_ocflag_pin, 0))
+-		pr_info("otg_ocflag_pin gpio_direction_output reset_pin failed\n");
+ 
+ 	return pdata;
+ }
+@@ -1241,7 +1260,12 @@ static void bq2589x_read_byte_work(struct work_struct *work)
+ 
+ 	bq2589x_dump_regs(bq);
+ 	ret = bq2589x_get_usb_type(bq, &bq->psy_usb_type);
+-	power_supply_changed(bq->psy);
++	if (bq->psy)
++		power_supply_changed(bq->psy);
++	if (bq->usb_psy)
++		power_supply_changed(bq->usb_psy);
++	if (bq->ac_psy)
++		power_supply_changed(bq->ac_psy);
+ 	pr_info("%s, power_good(%d), prev_pg(%d), vbus(%d), type(%d)\n",
+ 		__func__, bq->power_good, prev_pg, vbus, bq->psy_usb_type);
+ 
+@@ -1252,8 +1276,8 @@ static irqreturn_t bq2589x_irq_handler_thread(int irq, void *data)
+ {
+ 	struct bq2589x *bq = data;
+ 
+-	if (!mt_usb_is_device()) {
+-		pr_info("%s: Now is usb host mode. Skip detection\n",__func__);
++	if (bq2589x_is_otg_enable(bq) > 0) {
++		pr_info("%s: OTG boost active, skip charger detection\n", __func__);
+ 		return IRQ_HANDLED;
+ 	}
+ 
+@@ -1265,20 +1289,24 @@ static irqreturn_t bq2589x_irq_handler_thread(int irq, void *data)
+ static int bq2589x_register_interrupt(struct bq2589x *bq)
+ {
+ 	int ret = 0;
++	int irq = bq->irq > 0 ? bq->irq : bq->client->irq;
++
++	if (irq <= 0) {
++		dev_warn(bq->dev, "no valid charger IRQ configured\n");
++		return 0;
++	}
++	bq->irq = irq;
+ 
+-	ret = devm_request_threaded_irq(bq->dev, bq->client->irq, NULL,
++	ret = devm_request_threaded_irq(bq->dev, irq, NULL,
+ 					bq2589x_irq_handler_thread,
+ 					IRQF_TRIGGER_FALLING | IRQF_NO_SUSPEND |
+ 					IRQF_ONESHOT, "chr_stat", bq);
+ 	if (ret < 0) {
+ 		pr_info("request thread irq failed:%d\n", ret);
+ 		return ret;
+-	} else {
+-		pr_info("request thread irq pass:%d  bq->client->irq =%d\n",
+-			ret, bq->client->irq);
+ 	}
+-
+-	enable_irq_wake(bq->irq);
++	pr_info("request thread irq pass: irq=%d\n", irq);
++	enable_irq_wake(irq);
+ 
+ 	return 0;
+ }
+@@ -1773,14 +1801,18 @@ static int bq2589x_set_otg(struct charger_device *chg_dev, bool en)
+ 		}
+ 	gpio_set_value(bq_ex->otg_enable_pin, true);
+ 	gpio_set_value(bq_ex->otg_en2_pin, true);
+-	gpio_set_value(bq_ex->otg_sgm6111_pin, true);
++	if (bq_ex && gpio_is_valid(bq_ex->otg_sgm6111_pin))
++		if (gpio_is_valid(bq_ex->otg_sgm6111_pin))
++			gpio_set_value(bq_ex->otg_sgm6111_pin, true);
+ 	gpio_set_value(bq_ex->otg_ocflag_pin, true);
+ 	msleep(30);
+ 		ret = bq2589x_enable_otg(bq);
+ 	} else {
+ 	gpio_set_value(bq_ex->otg_enable_pin, false);
+ 	gpio_set_value(bq_ex->otg_en2_pin, false);
+-	gpio_set_value(bq_ex->otg_sgm6111_pin, false);
++	if (bq_ex && gpio_is_valid(bq_ex->otg_sgm6111_pin))
++		if (gpio_is_valid(bq_ex->otg_sgm6111_pin))
++			gpio_set_value(bq_ex->otg_sgm6111_pin, false);
+ 	gpio_set_value(bq_ex->otg_ocflag_pin, false);
+ 	msleep(30);
+ 		ret = bq2589x_disable_otg(bq);
+@@ -1805,7 +1837,9 @@ int bq2589x_set_enable_otg(bool en)
+ 		}
+ 		gpio_set_value(bq_ex->otg_enable_pin, true);
+ 		gpio_set_value(bq_ex->otg_en2_pin, true);
+-		gpio_set_value(bq_ex->otg_sgm6111_pin, true);
++		if (bq_ex && gpio_is_valid(bq_ex->otg_sgm6111_pin))
++		if (gpio_is_valid(bq_ex->otg_sgm6111_pin))
++			gpio_set_value(bq_ex->otg_sgm6111_pin, true);
+ 		gpio_set_value(bq_ex->otg_ocflag_pin, true);
+ 		msleep(30);
+ 			ret = bq2589x_enable_otg(bq_ex);
+@@ -1813,7 +1847,9 @@ int bq2589x_set_enable_otg(bool en)
+ 	else {
+ 		gpio_set_value(bq_ex->otg_enable_pin, false);
+ 		gpio_set_value(bq_ex->otg_en2_pin, false);
+-		gpio_set_value(bq_ex->otg_sgm6111_pin, false);
++		if (bq_ex && gpio_is_valid(bq_ex->otg_sgm6111_pin))
++		if (gpio_is_valid(bq_ex->otg_sgm6111_pin))
++			gpio_set_value(bq_ex->otg_sgm6111_pin, false);
+ 		gpio_set_value(bq_ex->otg_ocflag_pin, false);
+ 		msleep(30);
+ 		ret = bq2589x_disable_otg(bq_ex);
+@@ -1957,22 +1993,16 @@ static int bq2589x_chg_get_property(struct power_supply *psy,
+ 
+ 		bq2589x_update_bits(bq, BQ2589X_REG_02, BQ2589X_CONV_START_MASK,
+ 					1 << BQ2589X_CONV_START_SHIFT);
+-		if ((bq->part_no != pn_data[PN_SC89890H])) {
++		if (bq2589x_is_otg_enable(bq) > 0) {
++			val->intval = 0;
++		} else if (bq->part_no != pn_data[PN_SC89890H]) {
+ 			bq2589x_get_vbus(bq->chg_dev, &vbus);
+-			if (!bq->power_good && vbus < BQ2589X_VBUS_UVLO)
+-				val->intval = 0;
+-			else if (vbus < BQ2589X_VBUS_UVLO)
+-				val->intval = 0;
+-			else if (!mt_usb_is_device())
+-				val->intval = 0;
+-			else
+-				val->intval = 1;
+-			pr_info("%s usb online(%d),pd(%d), vbus(%d)\n",
++			val->intval = (bq->power_good || vbus >= BQ2589X_VBUS_UVLO) ? 1 : 0;
++			pr_info("%s usb online(%d), pg(%d), vbus(%d)\n",
+ 				__func__, val->intval, bq->power_good, vbus);
+-		} else if (!mt_usb_is_device())
+-			val->intval = 0;
+-		else
+-			val->intval = bq->power_good;
++		} else {
++			val->intval = bq->power_good ? 1 : 0;
++		}
+ 		break;
+ 	case POWER_SUPPLY_PROP_STATUS:
+ 		bq2589x_adc_read_vbus_volt(bq, &vbus_volt);
+@@ -2184,6 +2214,46 @@ static const struct power_supply_desc bq2589x_psy_desc = {
+ 	.set_property = bq2589x_chg_set_property,
+ };
+ 
++static enum power_supply_property bq2589x_aux_psy_props[] = {
++	POWER_SUPPLY_PROP_ONLINE,
++	POWER_SUPPLY_PROP_VOLTAGE_NOW,
++	POWER_SUPPLY_PROP_CURRENT_MAX,
++	POWER_SUPPLY_PROP_VOLTAGE_MAX,
++};
++
++static int bq2589x_aux_get_property(struct power_supply *psy,
++				    enum power_supply_property psp,
++				    union power_supply_propval *val)
++{
++	struct bq2589x *bq = power_supply_get_drvdata(psy);
++	union power_supply_propval base_val = {0};
++	int ret;
++	bool is_ac_type;
++
++	is_ac_type = (bq->psy_desc.type == POWER_SUPPLY_TYPE_USB_DCP ||
++		      bq->psy_desc.type == POWER_SUPPLY_TYPE_USB_PD);
++
++	switch (psp) {
++	case POWER_SUPPLY_PROP_ONLINE:
++		ret = bq2589x_chg_get_property(bq->psy, POWER_SUPPLY_PROP_ONLINE, &base_val);
++		if (ret < 0)
++			return ret;
++		if (psy == bq->ac_psy)
++			val->intval = (base_val.intval && is_ac_type) ? 1 : 0;
++		else
++			val->intval = (base_val.intval && !is_ac_type) ? 1 : 0;
++		return 0;
++	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
++		return bq2589x_chg_get_property(bq->psy, POWER_SUPPLY_PROP_VOLTAGE_NOW, val);
++	case POWER_SUPPLY_PROP_CURRENT_MAX:
++		return bq2589x_chg_get_property(bq->psy, POWER_SUPPLY_PROP_CURRENT_MAX, val);
++	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
++		return bq2589x_chg_get_property(bq->psy, POWER_SUPPLY_PROP_VOLTAGE_MAX, val);
++	default:
++		return -EINVAL;
++	}
++}
++
+ static int bq2589x_chg_init_psy(struct bq2589x *bq)
+ {
+ 	struct power_supply_config cfg = {
+@@ -2192,13 +2262,44 @@ static int bq2589x_chg_init_psy(struct bq2589x *bq)
+ 		.supplied_to = bq2589x_psy_supplied_to,
+ 		.num_supplicants = ARRAY_SIZE(bq2589x_psy_supplied_to),
+ 	};
++	struct power_supply_config aux_cfg = {
++		.drv_data = bq,
++		.supplied_to = bq2589x_psy_supplied_to,
++		.num_supplicants = ARRAY_SIZE(bq2589x_psy_supplied_to),
++	};
++
+ 	pr_info("bq2589x_chg_init_psy!\n");
+-	//pr_info(bq->dev, "%s\n", __func__);
+ 	memcpy(&bq->psy_desc, &bq2589x_psy_desc, sizeof(bq->psy_desc));
+ 	bq->psy_desc.name = "primary_chg";
+ 	bq->psy = devm_power_supply_register(bq->dev, &bq->psy_desc, &cfg);
++	if (IS_ERR(bq->psy))
++		return PTR_ERR(bq->psy);
++
++	memset(&bq->usb_psy_desc, 0, sizeof(bq->usb_psy_desc));
++	bq->usb_psy_desc.name = "usb";
++	bq->usb_psy_desc.type = POWER_SUPPLY_TYPE_USB;
++	bq->usb_psy_desc.properties = bq2589x_aux_psy_props;
++	bq->usb_psy_desc.num_properties = ARRAY_SIZE(bq2589x_aux_psy_props);
++	bq->usb_psy_desc.get_property = bq2589x_aux_get_property;
++	bq->usb_psy = devm_power_supply_register(bq->dev, &bq->usb_psy_desc, &aux_cfg);
++	if (IS_ERR(bq->usb_psy)) {
++		dev_warn(bq->dev, "failed to register usb psy: %ld\n", PTR_ERR(bq->usb_psy));
++		bq->usb_psy = NULL;
++	}
++
++	memset(&bq->ac_psy_desc, 0, sizeof(bq->ac_psy_desc));
++	bq->ac_psy_desc.name = "ac";
++	bq->ac_psy_desc.type = POWER_SUPPLY_TYPE_MAINS;
++	bq->ac_psy_desc.properties = bq2589x_aux_psy_props;
++	bq->ac_psy_desc.num_properties = ARRAY_SIZE(bq2589x_aux_psy_props);
++	bq->ac_psy_desc.get_property = bq2589x_aux_get_property;
++	bq->ac_psy = devm_power_supply_register(bq->dev, &bq->ac_psy_desc, &aux_cfg);
++	if (IS_ERR(bq->ac_psy)) {
++		dev_warn(bq->dev, "failed to register ac psy: %ld\n", PTR_ERR(bq->ac_psy));
++		bq->ac_psy = NULL;
++	}
+ 
+-	return IS_ERR(bq->psy) ? PTR_ERR(bq->psy) : 0;
++	return 0;
+ }
+ 
+ static struct charger_ops bq2589x_chg_ops = {
+@@ -2299,6 +2400,10 @@ static struct of_device_id bq2589x_charger_match_table[] = {
+ 	 .compatible = "sc,sc89890h",
+ 	 .data = &pn_data[PN_SC89890H],
+ 	 },
++	 {
++	 .compatible = "sgm,sgm41510",
++	 .data = &pn_data[PN_SGM41510],
++	 },
+ 	{},
+ };
+ MODULE_DEVICE_TABLE(of, bq2589x_charger_match_table);
+@@ -2318,6 +2423,13 @@ static int bq2589x_charger_probe(struct i2c_client *client)
+ 
+ 	bq->dev = &client->dev;
+ 	bq->client = client;
++	bq->irq = -EINVAL;
++	bq->irq_gpio = -EINVAL;
++	bq->chg_en_gpio = -EINVAL;
++	bq->otg_enable_pin = -EINVAL;
++	bq->otg_en2_pin = -EINVAL;
++	bq->otg_sgm6111_pin = -EINVAL;
++	bq->otg_ocflag_pin = -EINVAL;
+ 
+ 	i2c_set_clientdata(client, bq);
+ 
+@@ -2380,8 +2492,10 @@ static int bq2589x_charger_probe(struct i2c_client *client)
+ 	/* otg regulator */
+ 	config.dev = &client->dev;
+ 	config.driver_data = bq;
++	config.of_node = of_get_child_by_name(node, "usb_otg_vbus");
+ 	bq->otg_rdev = devm_regulator_register(&client->dev,
+ 						&bq2589x_otg_rdesc, &config);
++	of_node_put(config.of_node);
+ 	if (IS_ERR(bq->otg_rdev)) {
+ 		ret = PTR_ERR(bq->otg_rdev);
+ 		printk("otg_rdev error\n");
+diff --git a/drivers/power/supply/bq2589x_reg.h b/drivers/power/supply/bq2589x_reg.h
+index d284c6c..d9c61b2 100644
+--- a/drivers/power/supply/bq2589x_reg.h
++++ b/drivers/power/supply/bq2589x_reg.h
+@@ -453,6 +453,8 @@ struct bq2589x {
+ 
+ 	int status;
+ 	int irq;
++	int irq_gpio;
++	int chg_en_gpio;
+ 	int otg_enable_pin;
+ 	int otg_en2_pin;
+ 	int otg_sgm6111_pin;
+@@ -470,6 +472,10 @@ struct bq2589x {
+ 	struct delayed_work read_byte_work;
+ 
+ 	struct power_supply *psy;
++	struct power_supply_desc usb_psy_desc;
++	struct power_supply *usb_psy;
++	struct power_supply_desc ac_psy_desc;
++	struct power_supply *ac_psy;
+ 	struct power_supply *bat_psy;
+ 	struct power_supply *mtk_chg_psy;
+ 
+-- 
+2.53.0
+
