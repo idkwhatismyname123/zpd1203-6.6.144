@@ -1,6 +1,6 @@
 # ZPD1203 Linux 6.6 移植进度追踪 (PORTING_STATUS.md)
 
-- **当前阶段**：Phase 0 -> Phase 1 & Phase 2 启动
+- **当前阶段**：Phase 1 & Phase 2 并行调查中
 - **目标内核**：Linux 6.6 LTS（待 Phase 2 最终核准具体小版本与基线仓库）
 - **原厂基线**：Android 12（待 Phase 1 实测确认精确版本与内核版本）
 - **参考移植**：`idkwhatismyname123/zpd1203-5.10.240` (`test25` / `8a74a527`)
@@ -9,9 +9,9 @@
 
 | 阶段 | 描述 | 状态 | 备注 |
 |---|---|---|---|
-| Phase 0 | 工程文档、Git 仓库与 WSL2 工具链检查 | 进行中 | 创建 8 份规范与追踪文档 |
-| Phase 1 | 5.10 仓库深度解析 + 原厂备份只读提取分析 | 未开始 | 将由 Agent 2 & Agent 3 并行执行 |
-| Phase 2 | 六系内核源码调查与基底选型 | 未开始 | 将由 Agent 1 执行 |
+| Phase 0 | 工程文档、Git 仓库与 WSL2 工具链检查 | 已完成 | 已生成 8 份核心规范文档并验证 WSL2 工具链 |
+| Phase 1 | 5.10 仓库深度解析 + 原厂备份只读提取分析 | 进行中 | Agent 2 & Agent 3 并行执行 |
+| Phase 2 | 六系内核源码调查与基底选型 | 进行中 | Agent 1 并行执行 |
 | Phase 3 | 核心板级支持迁移（DTS/时钟/PMIC/存储/USB/Android核心） | 未开始 | 将由 Agent 4 执行 |
 | Phase 4 | 无 UART 调试体系与最小可启动内核构建 | 未开始 | 将由 Agent 4 执行 |
 | Phase 5 | 完整硬件驱动（显示/触屏/GPU/无线/音频/电源/相机分析） | 未开始 | 将由 Agent 5 & Agent 6 并行执行 |
