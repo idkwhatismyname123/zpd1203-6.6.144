@@ -9,19 +9,19 @@
 - [x] 提交初始工程脚手架 Git commit
 
 ## Phase 1：现有资源全面分析
-- [/] **Agent 3**：克隆并分析 `idkwhatismyname123/zpd1203-5.10.240`（提交记录、README、`zpd1203/`、DTS、defconfig、内核补丁、外置无线模块）
-- [/] **Agent 2**：只读分析原厂分区备份（`boot_a`、`vendor_boot_a`、`dtbo_a`、`vbmeta*`、`lk_a`、`expdb`、`super`）
-- [/] **Agent 2**：提取原厂 DTB、DTBO、ikconfig、cmdline、ramdisk、`vendor/firmware`、`vendor/lib/modules`
-- [/] **Agent 2**：提取原厂 Mali GPU DDK 版本、HWC/Gralloc 接口、音频/无线/电源/传感器/相机 HAL 与设备节点/ioctl 清单
-- [ ] 汇总生成完整硬件资源与驱动映射表并回填 `AGENTS.md`
+- [x] **Agent 3**：克隆并分析 `idkwhatismyname123/zpd1203-5.10.240`（提交记录、README、`zpd1203/`、DTS、defconfig、内核补丁、外置无线模块） -> 见 `analysis/phase1_510_port_analysis.md`
+- [x] **Agent 2**：只读分析原厂分区备份（`boot_a`、`vendor_boot_a`、`dtbo_a`、`vbmeta*`、`lk_a`、`expdb`、`super`） -> 见 `analysis/phase1_stock_analysis.md`
+- [x] **Agent 2**：提取原厂 DTB、DTBO、ikconfig、cmdline、ramdisk、`vendor/firmware`、`vendor/lib/modules`
+- [x] **Agent 2**：提取原厂 Mali GPU DDK 版本、HWC/Gralloc 接口、音频/无线/电源/传感器/相机 HAL 与设备节点/ioctl 清单
+- [x] 汇总生成完整硬件资源与驱动映射表并回填 `AGENTS.md`
 
 ## Phase 2：六系内核源码调查与基底选择
-- [/] **Agent 1**：验证并对比候选 6.6 / 6.1 仓库（`mt6768-mainline/android_kernel_samsung_mt6768`、`Theman-Fromfar/a05m-kernel-6.6`、`MotorolaMobilityLLC/kernel-kernel_device_modules-6.6`、AOSP `android15-6.6`、`Mayuri-Chan/MTK_kernel_device_modules_6.6`、`MotorolaMobilityLLC/kernel-kernel_device_modules-6.1`、`mt6768-mainline/linux`）
-- [ ] 建立候选源码覆盖率与构建方式对比矩阵
-- [ ] 在 `DECISIONS.md` 正式确定移植基底并建立洁净 Git 工作树
+- [x] **Agent 1**：验证并对比候选 6.6 / 6.1 仓库（`mt6768-mainline/android_kernel_samsung_mt6768`、`Theman-Fromfar/a05m-kernel-6.6`、`MotorolaMobilityLLC/kernel-kernel_device_modules-6.6`、AOSP `android15-6.6`、`Mayuri-Chan/MTK_kernel_device_modules_6.6`、`MotorolaMobilityLLC/kernel-kernel_device_modules-6.1`、`mt6768-mainline/linux`） -> 见 `analysis/phase2_bsp_survey.md`
+- [x] 建立候选源码覆盖率与构建方式对比矩阵
+- [x] 在 `DECISIONS.md` 正式确定移植基底并建立洁净 Git 工作树（`AOSP android15-6.6 6.6.144` + `Addster09` BSP + Moto GPU/Connsys）
 
 ## Phase 3：核心板级支持移植（Linux 6.6）
-- [ ] **Agent 4**：移植 ZPD1203 DTS/DTSI 与 Reserved Memory
+- [/] **Agent 4**：移植 ZPD1203 DTS/DTSI 与 Reserved Memory
 - [ ] **Agent 4**：适配 PSCI/SMP、GIC、MT6768 CCF 时钟、Pinctrl/GPIO、MT6358 PMIC/Regulator
 - [ ] **Agent 4**：适配 MSDC0 eMMC、RPMB、USB PHY + MTU3 + Gadget ADB
 - [ ] **Agent 4**：适配 IOMMU/SMI、Watchdog、Thermal、CPUFreq

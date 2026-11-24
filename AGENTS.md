@@ -40,41 +40,39 @@
 ## 3. 设备硬件信息与驱动映射（持续维护）
 
 ### 已确认基础设备条件
-- **SoC**：MediaTek MT6768（Scatter 标识 `MT6768`，存储 `EMMC` / `MSDC_0`，Preloader `preloader_k69v1_64_k419.bin`）
-- **Bootloader**：已解锁，使用 A/B 分区布局（`boot_a/b` 32 MiB `0x2000000`，`vendor_boot_a/b` 64 MiB `0x4000000`，`dtbo_a/b` 8 MiB `0x800000`，`expdb` 20 MiB `0x1400000`，`super` 15 GiB `0x3C0000000`）
-- **无物理 UART**：不允许要求拆机，必须依靠多级软件调试通道
-- **5.10 参考状态**：基于 Motorola `kernel-mtk` (`f83ca9e95d59`)，KernelSU v3.3.1，已验证 Android 12 横屏显示（NEON 显示桥接）、Himax 触屏、ADB、Wi-Fi/BT（9 个无线模块）、电量百分比；已知问题：相机失效、USB 充电状态上报未完成
+- **SoC**：MediaTek **MT6769V/CB (`hw_code=0x707`) / MT6768** 平台（Scatter 标识 `MT6768`，存储 `EMMC` / `MSDC_0`，Preloader `preloader_k69v1_64_k419.bin` `zpd_mt8788_android12`，双 Rank **6 GiB DRAM**: `0x40000000` + `0x100000000` 各 3 GiB）
+- **Bootloader & 分区现状**：已解锁（`[AVB20] lock_state=0x3`, `verifiedbootstate=orange`），`lk_a.img` **支持 `fastboot boot`**；使用 **Boot Header v2**（`page_size=2048`, `kernel=0x40080000`, `ramdisk=0x47c80000`, `dtb=0x4bc80000`）。`vendor_boot_a/b` 实际存放**未修改原厂 4.19.191 `boot.img`**（纯净基线），`boot_a` 含 Magisk ramdisk，`super` 仅 slot `_a` 存在逻辑分区（原厂 Android 12 `vendor_a`/`product_a` VNDK 31 + LineageOS 21 Android 14 GSI `system_a`）
+- **无物理 UART**：不允许要求拆机，已从 `expdb.img` 实测提取 `ramoops/pstore` 地址 **`0x4d010000` (`0xe0000`)**、BL FB **`0x7d350000` (`0x20b0000`)** 及完整 PL/LK/GZ 日志
+- **5.10 参考状态**：基于 Motorola `kernel-mtk` (`f83ca9e95d59`)，KernelSU v3.3.1，已验证 Android 12 横屏显示（`simplefb` + NEON `gralloc_fb0_bridge`）、SPI4 Himax 触屏、ADB (`musb-hdrc`)、Wi-Fi/BT（9 个无线模块）、电量百分比；已知问题：相机失效（未移植 + EL2 GenieZone 依赖）、USB 充电状态上报未完成（缺 `sgm41510`/`aw35615`/`wusb3801` 节点与驱动）
 
-### 硬件资源与驱动映射表
-> （Phase 1 完成后由 Agent 2 与 Agent 3 补全所有具体 IC 型号、I2C/SPI 总线、GPIO、IRQ、兼容字符串与 HAL 接口）
+### 硬件资源与驱动映射表（Phase 1 实证定稿）
 
-| 子系统 | 硬件芯片 / 模块 | 原厂 4.19 / HAL 接口 | 5.10.240 实现 | 6.6 目标驱动方案 | 状态 |
+| 子系统 | 硬件芯片 / 总线 / GPIO / IRQ (实测提取) | 原厂 4.19 / HAL 接口 | 5.10.240 实现 | 6.6 目标驱动方案 | 状态 |
 |---|---|---|---|---|---|
-| 核心 SoC / 启动 | MT6768 (ARMv8 + GICv3 + PSCI) | LK + vendor_boot + boot(v2) | `mt6768-zpd1203-minimal.dts` | 6.6 原生 MT6768 + ZPD1203 DTS | 待移植 |
-| 时钟 / Pinctrl / PMIC | MT6768 CCF / Pinctrl / MT6358 | MTK clk + mt6358 | Motorola 5.10 驱动 | 6.6 原生 MT6768 clk/pinctrl/mt6358 | 待分析 |
-| 内部存储 | eMMC (MSDC0) + RPMB | `fstab` + `super` 动态分区 | `mtk-msdc` + RPMB | 6.6 `mtk-sd` + RPMB | 待移植 |
-| USB / ADB | MTU3 / USB PHY + ConfigFS | Gadget ADB / MTP | 5.10 MTU3 + Gadget | 6.6 `mtu3` + Gadget FunctionFS | 待移植 |
-| 显示系统 | 待 Phase 1 确认 Panel IC / DSI | HWC / Gralloc | DRM + NEON 横屏桥接 | 6.6 MTK DRM/DSI + 桥接/原生适配 | 待分析 |
-| 触摸屏 | Himax (`Himax_firmware*.bin`) | Input Event + 固件 | 5.10 Himax I2C 驱动 | 6.6 API 适配版 Himax 驱动 | 待分析 |
-| GPU | Mali-G52（具体 DDK 待提取） | `libGLES_mali.so` + `/dev/mali0` | 5.10 `mali_kbase` + `ged` | 匹配 DDK 的 6.6 `mali_kbase` + `ged` | 待分析 |
-| 无线网络 | MT6768 Connsys Wi-Fi/BT | `wmt_loader` / `6620_launcher` / gen4m | 9 个独立编译无线 `.ko` | 6.6 上游 Connsys 重新编译适配 | 待分析 |
-| 电池 / 充电 | MT6358 Gauge + 充电 IC（待确认） | Health HAL / `power_supply` | 电量百分比可用，USB 充电状态未完 | 6.6 `mt6358` + 完整 `power_supply` 上报 | 待修复 |
-| 音频 | MT6768 ASoC + MT6358 Codec（+PA待确认） | Audio HAL | 5.10 ASoC | 6.6 ASoC 适配 | 待分析 |
-| 摄像头 | 待 Phase 1 确认 Sensor IC | `mtkcam` HAL | 5.10 失败（已知问题） | 评估 6.6 `imgsensor`/`mtkcam` 可行性 | 已知故障 |
-| 特权 / Root | KernelSU | N/A | KernelSU v3.3.1 | KernelSU 6.6 适配版本 | 待集成 |
+| 核心 SoC / 启动 | MT6768 ARMv8 + GICv3 + PSCI; `sysirq @ 0x0c53a650` (97 INTPOL); GenieZone EL2 | LK boot v2 + `vendor_boot_a` 纯净 ramdisk | `mt6768-zpd1203-minimal.dts` + `sysirq` 平台驱动补丁 + `mt6768.force_slot_a=1` | `aosp-6.6` (`6.6.144`) + ZPD1203 DTS + `sysirq` / `force_slot_a` 补丁 | 待移植 |
+| 时钟 / Pinctrl / PMIC | MT6768 CCF / Pinctrl / `pwrap` / MT6358 PMIC (`0x5820`) | `clk-mt6768`, `pinctrl-mt6768`, `mt6358` | Motorola 5.10 原生驱动 + `8250_mtk` 时钟修复 | `addster-bsp-6.6` + `aosp-6.6` 原生 MT6768 clk/pinctrl/mt6358 | 待移植 |
+| 内部存储 / 加密 | eMMC `mmc@11230000` (HS400 + CQHCI) + `inlinecrypt` (`aes-256-xts:v2`) + RPMB | `fstab.mt6768` + `super` 动态分区 (`_a`) | `mtk-sd.c` (`=y`); `RPMB=m` 未打包 | 6.6 `mtk-sd` + `cqhci` + `inlinecrypt` + `rpmb-mtk` (`=y`) | 待移植 |
+| USB / ADB | `usb0@11200000` (**`musb-hdrc`**) + `extcon_usb` (ID GPIO 41) + TPHY | `usb@1.2` HAL 与 `init.mt6768.usb.rc` 硬编码 **`musb-hdrc`** | `usb20/musb_core.c` (`dr_mode="peripheral"`, 删 `usb-role-switch`) + FFS ADB | 6.6 `usb/usb20` (`musb-hdrc`) + TPHY + ConfigFS/FFS（打通角色切换） | 待移植 |
+| 显示系统 / 背光 | **实机面板 `jt120wul005_a01_dsi_vdo`** (`HX83102-E/J`, `1200x2000`, `FB @ 0x7d350000`), **I2C7 `aw37503@3e`**, GPIO 153/70/165/45, `disp_pwm` | `hwcomposer.mt6768` 用 `/dev/mtk_disp_mgr` + `fb0`; `pq@2.15`/`mapper@4.0` 用 `/dev/dri/card0` | `DRM_MEDIATEK=n`; `simplefb.c` 关 OVL0 L3 + `a12_init_wrapper` + NEON `gralloc_fb0_bridge.so` | Phase 4 先行 `simplefb` + NEON 桥接保证点亮；Phase 5 迁移 6.6 MTK DRM v2 + `jt120wul005` + `aw37503` + 背光/HWC 兼容评估 | 待移植 |
+| 触摸屏 | **SPI4 (`spi4@11014000`)** `zlt_ts@0` (`"himax,hxcommon"`, CS/CLK/MO/MI=GPIO 17..20, INT=**GPIO 6**, 共享复位 **GPIO 158**) | `Himax_firmware*.bin` (`HX83102-J` / `HX83102-E` 6 份) | 5.10 `hxchipset`（active pinctrl, `SPI_MODE_3`, 跳过 `GPIO158`, 内建固件） | 前向移植 `hxchipset` 至 6.6 API（参考 Samsung `hx83112f`） | 待移植 |
+| GPU | **Mali-G52 MC2 (`mali@13040000`)** | `libGLES_mali.so` DDK **`1.4 Bifrost-"r32p1-01eac0"`** + `/dev/mali0` + `/proc/ged` | 5.10 `mali-r32p1` + `ged` + `gpufreq_mt6768` (`IOMMU`/`SMI` 未打包) | Moto 6.6 GPU `mali-r32p1` (`r32p1-01eac0`, `platform/mt6768`) + `ged` + `gpufreq` + `IOMMU`/`SMI` | 待移植 |
+| 无线网络 | `consys@18002000`, `btif@1100c000`, `wifi_ant_swap`=GPIO 108, `gps_lna`=GPIO 94 | 11 `.ko` (`connfem`->`wmt_drv`->`wmt_chrdev_wifi`/`bt_drv_connac1x`/`gps`/`fm`->`wlan_drv_gen4m`) + `soc1_0_*` 固件 | 9 个 5.10 `.ko` (`wireless.cpio.xz` + `MS_BIND` + `fb` notifier 补丁) | 重编 Moto `vvta35`/`v1tl35` 6.6 Connsys `.ko`（严禁复用 5.10 `.ko`） | 待移植 |
+| 电池 / 充电 / Type-C | `mt6358_gauge`; **I2C5 `sgm41510@6b`** (IRQ GPIO 26, EN GPIO 166), `subpmic@34`, `usb_type_c@4e`; **I2C6 `aw35615@22`** (PD, GPIO 8/159), `wusb3801@60` (CC), `z350@35` (QC); **I2C7 `slave_charger@4b`** | `health@2.1`, `/sys/class/power_supply/{battery,ac,usb}`, `fuelgauged` | 电量百分比可用；无充电 IC/Type-C DT 与驱动 (`CHARGER_SGM415XX=n`) | `addster-bsp-6.6` **`sgm415xx.c`** + **`tcpc_aw/aw35615`** + `aosp-6.6` **`wusb3801.c`** + `mt6358-gauge` + 完整 `power_supply` 上报 | 待修复 |
+| 音频 | `afe@11220000` + `mt6358` + **I2C3 SmartPA (`fs15xx@35/36`, `aw87xxx_pa@59/5a`)** + `accdet` | `audio.primary.mt6768` (`mt6768mt6358`), `awinic.audio.effect.so`, `fs15xx.fsm`/`aw87xxx_acf.bin` | 5.10 Defconfig 关闭 (`SND_SOC_MT6768=n`) | `addster-bsp-6.6` `mt6768-mt6358` ASoC + SmartPA/ACCDET 适配 | 待移植 |
+| 传感器 / 霍尔 / 按键 | I2C1 `sc7a20@18`, `mc3416@36`, `ucs14266@38`/`ls9801i@54` (EINT 7); `hall` (EINT 9/32); `kp` GPIO 93 | `/dev/m_*_misc`, `/dev/sensorlist` | 5.10 未移植（DTS 空桩） | 评估 IIO/Input 或 SCP 传感器接口对齐 | 待评估 |
+| 摄像头 | `sc800cs`/`hi849` (主/副 I2C2/I2C3), `sc800cssub`/`s5k4h7` (前 I2C4), 闪光灯 I2C7 `aw36515@63` | `camerahalserver` 依赖 `/dev/gz_kree` (EL2 `[ISP_HA]`/`[MTEE_SENINF]`) + ISP4 | 5.10 全禁用 (`dvfsrc` 禁用) | 评估 `addster-bsp-6.6` `isp4_t` (`sc800cs`/`s5k4h7`) + `gz_kree` EL2 接口 | 已知故障 |
+| Android ABI / 特权 | BinderFS, `/dev/dma_heap/mtk_mm*`, `/dev/ion` (`BIT(10)` Codec2), 软件 Keymaster, KernelSU | `allocator@4.0`/`mapper@4.0` 同时链接 `libdmabufheap.so` 与 `libion_mtk.so` | `MTK_ION_MM_HEAP_CODEC_ABI=y`, SELinux permissive, KernelSU v3.3.1 | 6.6 BinderFS/SELinux + DMA-BUF Heaps + `/dev/ion` `BIT(10)` 真实兼容转发 + KernelSU v3.3.1+ | 待移植 |
 
 ---
 
-## 4. 六系内核基底选择及技术依据
+## 4. 六系内核基底选择及技术依据（Phase 2 已拍板，详见 `DECISIONS.md` ADR-002）
 
-- **候选基线（已确认仓库存在）**：
-  1. `mt6768-mainline/android_kernel_samsung_mt6768`（Linux 6.6.50，包含 `kernel-6.6/`、`kernel_device_modules-6.6/`、`vendor/mediatek/kernel_modules/`）
-  2. `Theman-Fromfar/a05m-kernel-6.6`（Linux 6.6.50，包含 `kernel-6.6/`、`kernel_device_modules-6.6/`、`vendor/mediatek/kernel_modules/{connectivity,gpu,mtkcam,...}`）
-  3. `MotorolaMobilityLLC/kernel-kernel_device_modules-6.6`（`android-15-release-v1tl35.73-60-3`）+ AOSP `android15-6.6` + Motorola 15 无线模块仓库
-  4. `Mayuri-Chan/MTK_kernel_device_modules_6.6`（`lineage-22.1`）
-  5. `MotorolaMobilityLLC/kernel-kernel_device_modules-6.1`（`android-14-release-u3uc34.63-31-6`，6.1 备选对比）
-  6. `mt6768-mainline/linux`（Mainline MT6768 参考）
-- **决策规则**：由 Phase 2 源码调查对比 Kbuild 可独立编译性（避免受限的 Google Bazel/Kleaf 沙盒阻塞）、MT6768 驱动覆盖率、GPU/DRM/Connsys 匹配度后，在 `DECISIONS.md` 中正式拍板记录。
+- **已选定唯一主基底（Linux 6.6.144）**：
+  1. **核心内核**：AOSP `https://android.googlesource.com/kernel/common` 分支 `android15-6.6`（Commit `329f9ae918a9e18da3c488e531adf9b7995e2aae`，**Linux 6.6.144**）——零 Samsung DEFEX/FIVE/AFDO 污染，宿主机 `clang-21.1.8` + `ld.lld` 纯 Kbuild 一次通过。
+  2. **MT6768 `device_modules`**：**`Addster09/mtk-kernel-modules-bsp-6.6`**（`android15-6.6`, `1561b421959f`）为主，辅以 **`MotorolaMobilityLLC/kernel-kernel_device_modules-6.6`**（`android-15-release-v1tl35.73-60-3`, `9b049a46b9fc`）做 OEM 编译修复交叉校验。关键决定因素：`Addster09` 去除 Moto 机型强绑定且原生自带 ZPD1203 硬件所需的 `sgm415xx.c` 与 `tcpc_aw/aw35615`（AOSP 自带 `wusb3801.c` 与 `aw37503-regulator.c`）。
+  3. **Mali GPU 模块**：`MotorolaMobilityLLC/vendor-mediatek-kernel_modules-gpu`（`android-15-release-v1tl35.73-60-3`, `3b81cf6d7c0a`）中的 **`mali-r32p1` (`r32p1-01eac0`, `platform/mt6768/`)**，精确匹配原厂 `libGLES_mali.so` DDK 版本。
+  4. **Connsys 无线模块**：Motorola `vvta35` (`common`, `bt-mt66xx`, `connfem`, `wlan-adaptor`) + `v1tl35.73-60-3` (`wlan-core-gen4m`)，实测 5 大组件在 `6.6.144` 上 C 源码零修改编译通过。
+- **Linux 6.1 排除依据**：实测 `MotorolaMobilityLLC/kernel-kernel_device_modules-6.1` 完全不含 MT6768 源码（`find *6768*` 为空），而 Linux 6.6 拥有完整且维护至 2026 年的 MT6768 BSP，故坚持 Linux 6.6。
 
 ---
 

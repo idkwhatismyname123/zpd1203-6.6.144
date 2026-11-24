@@ -1,8 +1,8 @@
 # ZPD1203 Linux 6.6 移植进度追踪 (PORTING_STATUS.md)
 
-- **当前阶段**：Phase 1 & Phase 2 并行调查中
-- **目标内核**：Linux 6.6 LTS（待 Phase 2 最终核准具体小版本与基线仓库）
-- **原厂基线**：Android 12（待 Phase 1 实测确认精确版本与内核版本）
+- **当前阶段**：Phase 3（核心板级支持移植，已选定 Linux 6.6.144 基底）
+- **目标内核**：Linux **6.6.144** (`AOSP android15-6.6` + `Addster09/mtk-kernel-modules-bsp-6.6` + Moto GPU `r32p1` + Moto Connsys `vvta35`/`v1tl35`)
+- **原厂基线**：ZYB Android 12 (`vendor_boot_a.img` 4.19.191 / VNDK 31，`super` 含 LineageOS 21 Android 14 GSI `system_a`)
 - **参考移植**：`idkwhatismyname123/zpd1203-5.10.240` (`test25` / `8a74a527`)
 
 ## 阶段里程碑状态
@@ -10,9 +10,9 @@
 | 阶段 | 描述 | 状态 | 备注 |
 |---|---|---|---|
 | Phase 0 | 工程文档、Git 仓库与 WSL2 工具链检查 | 已完成 | 已生成 8 份核心规范文档并验证 WSL2 工具链 |
-| Phase 1 | 5.10 仓库深度解析 + 原厂备份只读提取分析 | 进行中 | Agent 2 & Agent 3 并行执行 |
-| Phase 2 | 六系内核源码调查与基底选型 | 进行中 | Agent 1 并行执行 |
-| Phase 3 | 核心板级支持迁移（DTS/时钟/PMIC/存储/USB/Android核心） | 未开始 | 将由 Agent 4 执行 |
+| Phase 1 | 5.10 仓库深度解析 + 原厂备份只读提取分析 | 已完成 | `analysis/phase1_510_port_analysis.md` & `analysis/phase1_stock_analysis.md` |
+| Phase 2 | 六系内核源码调查与基底选型 | 已完成 | `analysis/phase2_bsp_survey.md`，定案 Linux 6.6.144 组合架构 |
+| Phase 3 | 核心板级支持迁移（DTS/时钟/PMIC/存储/USB/Android核心） | 进行中 | Agent 4 启动中 |
 | Phase 4 | 无 UART 调试体系与最小可启动内核构建 | 未开始 | 将由 Agent 4 执行 |
 | Phase 5 | 完整硬件驱动（显示/触屏/GPU/无线/音频/电源/相机分析） | 未开始 | 将由 Agent 5 & Agent 6 并行执行 |
 | Phase 6 | Android Vendor ABI 兼容性验证与适配 | 未开始 | 将由 Agent 7 执行 |
