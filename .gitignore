@@ -1,0 +1,22 @@
+# Scratch, caches, large binaries & build intermediates
+out/
+*.img
+!patches/
+*.bin
+*.ko
+*.tar.*
+*.zip
+*.gz
+*.xz
+*.lz4
+.tmp/
+tmp/
+extracted_stock/
+survey/
+ref-5.10.240/
+kernel-src/
+*.log
+*.pyc
+__pycache__/
+.DS_Store
+Thumbs.db
