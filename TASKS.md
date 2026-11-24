@@ -5,18 +5,18 @@
 ## Phase 0：工程初始化与环境准备
 - [x] 初始化 `d:\P3066` Git 仓库与 `.gitignore`
 - [x] 创建 8 份核心项目管理文档（`AGENTS.md` 等）
-- [/] 检查并补全 WSL2 构建与镜像解包依赖
-- [ ] 提交初始工程脚手架 Git commit
+- [x] 检查并补全 WSL2 构建与镜像解包依赖（已补装 `gcc-arm-linux-gnueabi`, `rsync`, `zstd` 等）
+- [x] 提交初始工程脚手架 Git commit
 
 ## Phase 1：现有资源全面分析
-- [ ] **Agent 3**：克隆并分析 `idkwhatismyname123/zpd1203-5.10.240`（提交记录、README、`zpd1203/`、DTS、defconfig、内核补丁、外置无线模块）
-- [ ] **Agent 2**：只读分析原厂分区备份（`boot_a`、`vendor_boot_a`、`dtbo_a`、`vbmeta*`、`lk_a`、`expdb`、`super`）
-- [ ] **Agent 2**：提取原厂 DTB、DTBO、ikconfig、cmdline、ramdisk、`vendor/firmware`、`vendor/lib/modules`
-- [ ] **Agent 2**：提取原厂 Mali GPU DDK 版本、HWC/Gralloc 接口、音频/无线/电源/传感器/相机 HAL 与设备节点/ioctl 清单
+- [/] **Agent 3**：克隆并分析 `idkwhatismyname123/zpd1203-5.10.240`（提交记录、README、`zpd1203/`、DTS、defconfig、内核补丁、外置无线模块）
+- [/] **Agent 2**：只读分析原厂分区备份（`boot_a`、`vendor_boot_a`、`dtbo_a`、`vbmeta*`、`lk_a`、`expdb`、`super`）
+- [/] **Agent 2**：提取原厂 DTB、DTBO、ikconfig、cmdline、ramdisk、`vendor/firmware`、`vendor/lib/modules`
+- [/] **Agent 2**：提取原厂 Mali GPU DDK 版本、HWC/Gralloc 接口、音频/无线/电源/传感器/相机 HAL 与设备节点/ioctl 清单
 - [ ] 汇总生成完整硬件资源与驱动映射表并回填 `AGENTS.md`
 
 ## Phase 2：六系内核源码调查与基底选择
-- [ ] **Agent 1**：验证并对比候选 6.6 / 6.1 仓库（`mt6768-mainline/android_kernel_samsung_mt6768`、`Theman-Fromfar/a05m-kernel-6.6`、`MotorolaMobilityLLC/kernel-kernel_device_modules-6.6`、AOSP `android15-6.6`、`Mayuri-Chan/MTK_kernel_device_modules_6.6`、`MotorolaMobilityLLC/kernel-kernel_device_modules-6.1`、`mt6768-mainline/linux`）
+- [/] **Agent 1**：验证并对比候选 6.6 / 6.1 仓库（`mt6768-mainline/android_kernel_samsung_mt6768`、`Theman-Fromfar/a05m-kernel-6.6`、`MotorolaMobilityLLC/kernel-kernel_device_modules-6.6`、AOSP `android15-6.6`、`Mayuri-Chan/MTK_kernel_device_modules_6.6`、`MotorolaMobilityLLC/kernel-kernel_device_modules-6.1`、`mt6768-mainline/linux`）
 - [ ] 建立候选源码覆盖率与构建方式对比矩阵
 - [ ] 在 `DECISIONS.md` 正式确定移植基底并建立洁净 Git 工作树
 
