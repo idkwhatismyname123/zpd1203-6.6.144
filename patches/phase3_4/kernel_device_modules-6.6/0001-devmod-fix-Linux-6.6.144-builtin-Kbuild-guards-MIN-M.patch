@@ -1,0 +1,437 @@
+From 4654b45c01a654cc7f405304b9b6ccf7d199921e Mon Sep 17 00:00:00 2001
+From: ZPD1203 Kernel Port <zpd1203@localhost>
+Date: Tue, 24 Nov 2026 18:27:15 +1000
+Subject: [PATCH 1/3] devmod: fix Linux 6.6.144 builtin Kbuild guards, MIN/MAX,
+ RPMB, IOMMU, PPM, clkbuf
+
+---
+ drivers/char/rpmb/rpmb-mtk.c                  | 21 ++++++++++++++++---
+ drivers/dma-buf/heaps/Makefile                |  1 +
+ drivers/dma-buf/heaps/mtk_dmabuf_events.h     |  2 +-
+ .../drivers/gpu/arm/midgard/mali_malisw.h     |  4 ++++
+ .../touchscreen/GT9966/goodix_ts_inspect.c    |  2 ++
+ drivers/iommu/mtk_iommu.c                     |  6 ++++++
+ .../platform/mtk-vcodec/mtk_vcodec_util.h     |  4 ++++
+ .../misc/mediatek/blocktag/blocktag-earaio.c  |  2 ++
+ .../misc/mediatek/clkbuf/src/clkbuf-pmif.c    |  2 ++
+ .../cpufreq_v2/inc/mtk_cpufreq_internal.h     |  4 ++++
+ .../mediatek/mdpm_v1/mtk_mdpm_common_v2.c     |  2 ++
+ drivers/misc/mediatek/mme/mmevent.h           |  2 ++
+ .../performance/fpsgo_v3/fbt/src/fbt_cpu.c    |  4 ++++
+ .../fpsgo_v3/fbt/src/fbt_cpu_ctrl.c           |  4 ++++
+ .../include/mtk_perfmgr_internal.h            |  4 ++++
+ .../powerhal_cpu_ctrl/powerhal_cpu_ctrl.c     |  4 ++++
+ .../mtk_low_battery_throttling.c              |  2 ++
+ .../mediatek/ppm_v3/inc/mtk_ppm_internal.h    |  2 +-
+ .../common/coolers/mtk_cooler_bcct_v1.c       |  4 ++++
+ .../mediatek/thermal/v1/inc/tscpu_settings.h  |  4 ++++
+ .../mediatek/thermal/v1/inc/tspmic_settings.h |  4 ++++
+ .../mediatek/thermal/v1/mtk_thermal_monitor.c |  2 ++
+ 22 files changed, 81 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/char/rpmb/rpmb-mtk.c b/drivers/char/rpmb/rpmb-mtk.c
+index 5c4a401..91e21de 100644
+--- a/drivers/char/rpmb/rpmb-mtk.c
++++ b/drivers/char/rpmb/rpmb-mtk.c
+@@ -45,6 +45,19 @@
+ #include "ufs-mediatek-sip.h"
+ #include "ufs-mediatek.h"
+ #endif
++#if !IS_ENABLED(CONFIG_DEVICE_MODULES_SCSI_UFS_MEDIATEK)
++enum {
++	BOOTDEV_SDMMC = 1,
++	BOOTDEV_UFS   = 2
++};
++
++struct tag_bootmode {
++	u32 size;
++	u32 tag;
++	u32 bootmode;
++	u32 boottype;
++};
++#endif
+ 
+ #if IS_ENABLED(CONFIG_DEVICE_MODULES_MMC_MTK_PRO)
+ #include <uapi/linux/mmc/ioctl.h>
+@@ -144,7 +157,9 @@ static struct nl_rpmb_send_req nl_rpmb_req;
+ 
+ #define RPMB_NAME "rpmb"
+ 
++#ifndef MIN
+ #define MIN(a, b) (((a) < (b)) ? (a) : (b))
++#endif
+ 
+ 
+ enum ufs_ioctl {
+@@ -393,7 +408,7 @@ static int rpmb_cal_hmac(struct rpmb_frame *frame, int blk_cnt,
+ }
+ #endif
+ 
+-static void rpmb_dump_frame(struct rpmb_frame *frame)
++static __maybe_unused void rpmb_dump_frame(struct rpmb_frame *frame)
+ {
+ 	print_hex_dump(KERN_DEBUG, "rpmb key/mac ", DUMP_PREFIX_OFFSET, 16, 8,
+ 		frame->key_mac, RPMB_KEY_LEN, false);
+@@ -408,13 +423,13 @@ static void rpmb_dump_frame(struct rpmb_frame *frame)
+ 	pr_debug("rpmb type=0x%x",	be16_to_cpu(frame->req_resp));
+ }
+ 
+-static struct rpmb_frame *rpmb_alloc_frames(unsigned int cnt)
++static __maybe_unused struct rpmb_frame *rpmb_alloc_frames(unsigned int cnt)
+ {
+ 	return kzalloc(sizeof(struct rpmb_frame) * cnt, 0);
+ }
+ 
+ #ifdef __RPMB_KERNEL_NL_SUPPORT
+-static int nl_rpmb_cmd_req(const struct rpmb_data *rpmbd, u8 region)
++static __maybe_unused int nl_rpmb_cmd_req(const struct rpmb_data *rpmbd, u8 region)
+ {
+ 	int ret = 0;
+ 
+diff --git a/drivers/dma-buf/heaps/Makefile b/drivers/dma-buf/heaps/Makefile
+index 494e3f5..e412052 100644
+--- a/drivers/dma-buf/heaps/Makefile
++++ b/drivers/dma-buf/heaps/Makefile
+@@ -1,6 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ 
+ ccflags-y += -I$(srctree)/drivers/dma-buf/heaps
++ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/dma-buf/heaps
+ 
+ # system heap
+ system_heap-objs := \
+diff --git a/drivers/dma-buf/heaps/mtk_dmabuf_events.h b/drivers/dma-buf/heaps/mtk_dmabuf_events.h
+index ffb7746..f9b5c1d 100644
+--- a/drivers/dma-buf/heaps/mtk_dmabuf_events.h
++++ b/drivers/dma-buf/heaps/mtk_dmabuf_events.h
+@@ -35,7 +35,7 @@ DEFINE_DMABUF_EVENT(tracing_mark_write_dma32);
+ 
+ #undef TRACE_INCLUDE_FILE
+ #undef TRACE_INCLUDE_PATH
+-#define TRACE_INCLUDE_PATH ../../drivers/dma-buf/heaps
++#define TRACE_INCLUDE_PATH .
+ #define TRACE_INCLUDE_FILE mtk_dmabuf_events
+ 
+ /* This part must be outside protection */
+diff --git a/drivers/gpu/mediatek/gpu_mali/mali_avalon/mali-r49p1/drivers/gpu/arm/midgard/mali_malisw.h b/drivers/gpu/mediatek/gpu_mali/mali_avalon/mali-r49p1/drivers/gpu/arm/midgard/mali_malisw.h
+index a44765a..0a9e919 100644
+--- a/drivers/gpu/mediatek/gpu_mali/mali_avalon/mali-r49p1/drivers/gpu/arm/midgard/mali_malisw.h
++++ b/drivers/gpu/mediatek/gpu_mali/mali_avalon/mali-r49p1/drivers/gpu/arm/midgard/mali_malisw.h
+@@ -36,7 +36,9 @@
+  * As a macro it may evaluate its arguments more than once.
+  * Refer to MAX macro for more details
+  */
++#ifndef MIN
+ #define MIN(x, y) ((x) < (y) ? (x) : (y))
++#endif
+ 
+ /**
+  * MAX - Return the greater of two values.
+@@ -50,7 +52,9 @@
+  * to retrieve the min and max of two values, consider using a conditional swap
+  * instead.
+  */
++#ifndef MAX
+ #define MAX(x, y) ((x) < (y) ? (y) : (x))
++#endif
+ 
+ /**
+  * CSTD_UNUSED - Function-like macro for suppressing unused variable warnings.
+diff --git a/drivers/input/touchscreen/GT9966/goodix_ts_inspect.c b/drivers/input/touchscreen/GT9966/goodix_ts_inspect.c
+index 84f36ec..1d6c83f 100644
+--- a/drivers/input/touchscreen/GT9966/goodix_ts_inspect.c
++++ b/drivers/input/touchscreen/GT9966/goodix_ts_inspect.c
+@@ -122,7 +122,9 @@
+ 
+ 
+ #define ABS(val)			((val < 0)? -(val) : val)
++#ifndef MAX
+ #define MAX(a, b)			((a > b)? a : b)
++#endif
+ 
+ static bool module_initialized;
+ 
+diff --git a/drivers/iommu/mtk_iommu.c b/drivers/iommu/mtk_iommu.c
+index d27bf0c..968305a 100644
+--- a/drivers/iommu/mtk_iommu.c
++++ b/drivers/iommu/mtk_iommu.c
+@@ -39,11 +39,15 @@
+ #if IS_ENABLED(CONFIG_MTK_IOMMU_MISC_SECURE)
+ #include <../misc/mediatek/iommu/iommu_secure.h>
+ #endif
++#ifndef IOMMU_BRING_UP
++#define IOMMU_BRING_UP	(0)
++#endif
+ #if IS_ENABLED(CONFIG_DEVICE_MODULES_MTK_SMI) && !IOMMU_BRING_UP
+ #include <../misc/mediatek/smi/mtk-smi-dbg.h>
+ #endif
+ 
+ #include "mtk_iommu.h"
++#include <../misc/mediatek/iommu/mtk-iommu-util.h>
+ 
+ #define REG_MMU_PT_BASE_ADDR			0x000
+ 
+@@ -2364,7 +2368,9 @@ static int mtk_iommu_pm_status_update(u32 type, u32 id, bool pm_sta)
+ {
+ 	struct mtk_iommu_data *data;
+ 	unsigned long flags;
++#if IS_ENABLED(CONFIG_MTK_IOMMU_MISC_DBG)
+ 	int iommu_ids;
++#endif
+ 
+ 	/* Only support APU IOMMU */
+ 	if (type != APU_IOMMU)
+diff --git a/drivers/media/platform/mtk-vcodec/mtk_vcodec_util.h b/drivers/media/platform/mtk-vcodec/mtk_vcodec_util.h
+index 4267aa6..15abe0c 100644
+--- a/drivers/media/platform/mtk-vcodec/mtk_vcodec_util.h
++++ b/drivers/media/platform/mtk-vcodec/mtk_vcodec_util.h
+@@ -34,8 +34,12 @@
+ #define LOG_PROPERTY_SIZE 1024
+ #define ROUND_N(X, N)   (((X) + ((N)-1)) & (~((N)-1)))    //only for N is exponential of 2
+ #define CEIL_DIV(x, y) ((y) ? (((x) + (y) - 1) / (y)) : 0)
++#ifndef MIN
+ #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
++#endif
++#ifndef MAX
+ #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
++#endif
+ #define ABS(x) (((x) >= 0) ? (x) : -(x))
+ #define NS_TO_MS(X) (div_u64(X, 1000000))
+ #define NS_MOD_MS(X) ({u64 __X = (X); do_div(__X, 1000000);})
+diff --git a/drivers/misc/mediatek/blocktag/blocktag-earaio.c b/drivers/misc/mediatek/blocktag/blocktag-earaio.c
+index c20fe28..50b8a4b 100644
+--- a/drivers/misc/mediatek/blocktag/blocktag-earaio.c
++++ b/drivers/misc/mediatek/blocktag/blocktag-earaio.c
+@@ -21,7 +21,9 @@
+ #include "blocktag-internal.h"
+ #include "blocktag-fuse-trace.h"
+ 
++#ifndef MIN
+ #define MIN(a, b) (((a) < (b)) ? (a) : (b))
++#endif
+ 
+ #define EARA_IOCTL_MAX_SIZE 27
+ struct _EARA_IOCTL_PACKAGE {
+diff --git a/drivers/misc/mediatek/clkbuf/src/clkbuf-pmif.c b/drivers/misc/mediatek/clkbuf/src/clkbuf-pmif.c
+index 5723988..ddc4987 100644
+--- a/drivers/misc/mediatek/clkbuf/src/clkbuf-pmif.c
++++ b/drivers/misc/mediatek/clkbuf/src/clkbuf-pmif.c
+@@ -632,7 +632,9 @@ static struct clkbuf_dts *pmif_parse_dts_v3(struct clkbuf_dts *array,
+ 
+ void __spmi_dump_pmif_record(void)
+ {
++#if IS_ENABLED(CONFIG_DEVICE_MODULES_SPMI_MTK_PMIF)
+ 	spmi_dump_pmif_record_reg();
++#endif
+ }
+ 
+ static struct clkbuf_operation clkbuf_ops_v1 = {
+diff --git a/drivers/misc/mediatek/cpufreq_v2/inc/mtk_cpufreq_internal.h b/drivers/misc/mediatek/cpufreq_v2/inc/mtk_cpufreq_internal.h
+index 8377c76..8233596 100644
+--- a/drivers/misc/mediatek/cpufreq_v2/inc/mtk_cpufreq_internal.h
++++ b/drivers/misc/mediatek/cpufreq_v2/inc/mtk_cpufreq_internal.h
+@@ -43,8 +43,12 @@
+ #include "mtk_cpufreq_config.h"
+ #include "mtk_cpufreq_struct.h"
+ 
++#ifndef MAX
+ #define MAX(a, b) ((a) >= (b) ? (a) : (b))
++#endif
++#ifndef MIN
+ #define MIN(a, b) ((a) >= (b) ? (b) : (a))
++#endif
+ 
+ 
+ /* PORTING */
+diff --git a/drivers/misc/mediatek/mdpm_v1/mtk_mdpm_common_v2.c b/drivers/misc/mediatek/mdpm_v1/mtk_mdpm_common_v2.c
+index 7a824b5..94f87b1 100644
+--- a/drivers/misc/mediatek/mdpm_v1/mtk_mdpm_common_v2.c
++++ b/drivers/misc/mediatek/mdpm_v1/mtk_mdpm_common_v2.c
+@@ -38,7 +38,9 @@ u32 *md_share_mem;
+ #define _BIT_(_bit_)		((unsigned int)(1 << (_bit_)))
+ #define _BITMASK_(_bits_)	\
+ (((unsigned int)-1>>(31-((1)?_bits_)))&~((1U<<((0)?_bits_))-1))
++#ifndef MAX
+ #define MAX(a, b) ((a) > (b) ? (a) : (b))
++#endif
+ 
+ #define DLPT_TAG     "[MDPM]"
+ #define mdpl_pr_err(fmt, args...)		pr_err(DLPT_TAG fmt, ##args)
+diff --git a/drivers/misc/mediatek/mme/mmevent.h b/drivers/misc/mediatek/mme/mmevent.h
+index 7006a11..305ffb5 100644
+--- a/drivers/misc/mediatek/mme/mmevent.h
++++ b/drivers/misc/mediatek/mme/mmevent.h
+@@ -129,7 +129,9 @@ enum data_flag_t {
+ 	DATA_FLAG_CODE_REGION_STRING = 7
+ };
+ 
++#ifndef MIN
+ #define MIN(x, y)   ((x) <= (y) ? (x) : (y))
++#endif
+ #define FLAG_INT_POINTER_SIZE 16
+ #define POINTER_SIZE 8
+ #define U64_POINTER 1
+diff --git a/drivers/misc/mediatek/performance/fpsgo_v3/fbt/src/fbt_cpu.c b/drivers/misc/mediatek/performance/fpsgo_v3/fbt/src/fbt_cpu.c
+index 8fe4d55..8c17397 100644
+--- a/drivers/misc/mediatek/performance/fpsgo_v3/fbt/src/fbt_cpu.c
++++ b/drivers/misc/mediatek/performance/fpsgo_v3/fbt/src/fbt_cpu.c
+@@ -122,8 +122,12 @@
+ #define FPSGO_BAFFINITY_TOTAL 7
+ 
+ 
++#ifndef MAX
+ #define MAX(a, b) (((a) > (b)) ? (a) : (b))
++#endif
++#ifndef MIN
+ #define MIN(a, b) (((a) < (b)) ? (a) : (b))
++#endif
+ 
+ struct fbt_cpu_dvfs_info {
+ 	unsigned int *power;
+diff --git a/drivers/misc/mediatek/performance/fpsgo_v3/fbt/src/fbt_cpu_ctrl.c b/drivers/misc/mediatek/performance/fpsgo_v3/fbt/src/fbt_cpu_ctrl.c
+index 26c3d72..64d90bd 100644
+--- a/drivers/misc/mediatek/performance/fpsgo_v3/fbt/src/fbt_cpu_ctrl.c
++++ b/drivers/misc/mediatek/performance/fpsgo_v3/fbt/src/fbt_cpu_ctrl.c
+@@ -26,8 +26,12 @@
+ 
+ /*--------------------------------------------*/
+ 
++#ifndef MAX
+ #define MAX(a, b) (((a) > (b)) ? (a) : (b))
++#endif
++#ifndef MIN
+ #define MIN(a, b) (((a) < (b)) ? (a) : (b))
++#endif
+ 
+ 
+ struct FBT_CPU_CTRL_NOTIFIER_PUSH_TAG {
+diff --git a/drivers/misc/mediatek/performance/include/mtk_perfmgr_internal.h b/drivers/misc/mediatek/performance/include/mtk_perfmgr_internal.h
+index d8b7f31..22774d8 100644
+--- a/drivers/misc/mediatek/performance/include/mtk_perfmgr_internal.h
++++ b/drivers/misc/mediatek/performance/include/mtk_perfmgr_internal.h
+@@ -21,8 +21,12 @@ static const struct proc_ops perfmgr_ ## name ## _proc_fops = { \
+ }
+ 
+ #define PROC_ENTRY(name) {__stringify(name), &perfmgr_ ## name ## _proc_fops}
++#ifndef MAX
+ #define MAX(a, b) (((a) > (b)) ? (a) : (b))
++#endif
++#ifndef MIN
+ #define MIN(a, b) (((a) < (b)) ? (a) : (b))
++#endif
+ #define for_each_perfmgr_clusters(i)	\
+ 	for (i = 0; i < clstr_num; i++)
+ 
+diff --git a/drivers/misc/mediatek/performance/powerhal_cpu_ctrl/powerhal_cpu_ctrl.c b/drivers/misc/mediatek/performance/powerhal_cpu_ctrl/powerhal_cpu_ctrl.c
+index a1dce11..d5f43a0 100644
+--- a/drivers/misc/mediatek/performance/powerhal_cpu_ctrl/powerhal_cpu_ctrl.c
++++ b/drivers/misc/mediatek/performance/powerhal_cpu_ctrl/powerhal_cpu_ctrl.c
+@@ -64,8 +64,12 @@ static const struct proc_ops perfmgr_ ## name ## _proc_fops = { \
+ 			pr_debug(fmt, ##x); \
+ 	} while (0)
+ 
++#ifndef MAX
+ #define MAX(a, b) (((a) > (b)) ? (a) : (b))
++#endif
++#ifndef MIN
+ #define MIN(a, b) (((a) < (b)) ? (a) : (b))
++#endif
+ 
+ #define CLUSTER_MAX 10
+ #define CORE_MAX 8
+diff --git a/drivers/misc/mediatek/power_throttling/mtk_low_battery_throttling.c b/drivers/misc/mediatek/power_throttling/mtk_low_battery_throttling.c
+index cfc3f96..b29762e 100644
+--- a/drivers/misc/mediatek/power_throttling/mtk_low_battery_throttling.c
++++ b/drivers/misc/mediatek/power_throttling/mtk_low_battery_throttling.c
+@@ -33,7 +33,9 @@
+ #define MIN_LBAT_VOLT 2000
+ #define LBAT_PMIC_MAX_LEVEL LOW_BATTERY_LEVEL_3
+ #define LBAT_PMIC_LEVEL_NUM (LOW_BATTERY_LEVEL_3+1)
++#ifndef MAX
+ #define MAX(a, b) ((a) > (b) ? (a) : (b))
++#endif
+ #define VOLT_L_STR "thd-volts-l"
+ #define VOLT_H_STR "thd-volts-h"
+ 
+diff --git a/drivers/misc/mediatek/ppm_v3/inc/mtk_ppm_internal.h b/drivers/misc/mediatek/ppm_v3/inc/mtk_ppm_internal.h
+index 424f7c2..5a0ba76 100644
+--- a/drivers/misc/mediatek/ppm_v3/inc/mtk_ppm_internal.h
++++ b/drivers/misc/mediatek/ppm_v3/inc/mtk_ppm_internal.h
+@@ -355,8 +355,8 @@ extern void aee_rr_rec_ppm_step(u8 val);
+ extern void aee_rr_rec_ppm_min_pwr_bgt(u32 val);
+ extern void aee_rr_rec_ppm_policy_mask(u32 val);
+ extern void aee_rr_rec_ppm_waiting_for_pbm(u8 val);
+-extern void ppm_init_qos_request(void);
+ #endif
++extern void ppm_init_qos_request(void);
+ 
+ extern unsigned int ppm_cpufreq_get_cur_phy_freq_no_lock_get(int i);
+ 
+diff --git a/drivers/misc/mediatek/thermal/common/coolers/mtk_cooler_bcct_v1.c b/drivers/misc/mediatek/thermal/common/coolers/mtk_cooler_bcct_v1.c
+index 7a945a4..950e1dc 100644
+--- a/drivers/misc/mediatek/thermal/common/coolers/mtk_cooler_bcct_v1.c
++++ b/drivers/misc/mediatek/thermal/common/coolers/mtk_cooler_bcct_v1.c
+@@ -58,8 +58,12 @@ static int cl_bcct_klog_on;
+ static kuid_t uid = KUIDT_INIT(0);
+ static kgid_t gid = KGIDT_INIT(1000);
+ 
++#ifndef MIN
+ #define MIN(_a_, _b_) ((_a_) > (_b_) ? (_b_) : (_a_))
++#endif
++#ifndef MAX
+ #define MAX(_a_, _b_) ((_a_) > (_b_) ? (_a_) : (_b_))
++#endif
+ 
+ /* Battery & Charger Status*/
+ static int bat_info_uisoc; /* battery UI soc */
+diff --git a/drivers/misc/mediatek/thermal/v1/inc/tscpu_settings.h b/drivers/misc/mediatek/thermal/v1/inc/tscpu_settings.h
+index 7037ec2..24ac408 100644
+--- a/drivers/misc/mediatek/thermal/v1/inc/tscpu_settings.h
++++ b/drivers/misc/mediatek/thermal/v1/inc/tscpu_settings.h
+@@ -21,8 +21,12 @@
+  * Genernal
+  *=============================================================
+  */
++#ifndef MIN
+ #define MIN(_a_, _b_) ((_a_) > (_b_) ? (_b_) : (_a_))
++#endif
++#ifndef MAX
+ #define MAX(_a_, _b_) ((_a_) > (_b_) ? (_a_) : (_b_))
++#endif
+ #define _BIT_(_bit_)		((unsigned int)(1 << (_bit_)))
+ #define _BITMASK_(_bits_)	(((unsigned int) -1 >> (31 - ((1) ? _bits_))) \
+ 						& ~((1U << ((0) ? _bits_)) - 1))
+diff --git a/drivers/misc/mediatek/thermal/v1/inc/tspmic_settings.h b/drivers/misc/mediatek/thermal/v1/inc/tspmic_settings.h
+index ad24cde..8e081ca 100644
+--- a/drivers/misc/mediatek/thermal/v1/inc/tspmic_settings.h
++++ b/drivers/misc/mediatek/thermal/v1/inc/tspmic_settings.h
+@@ -16,8 +16,12 @@
+  * Genernal
+  *=============================================================
+  */
++#ifndef MIN
+ #define MIN(_a_, _b_) ((_a_) > (_b_) ? (_b_) : (_a_))
++#endif
++#ifndef MAX
+ #define MAX(_a_, _b_) ((_a_) > (_b_) ? (_a_) : (_b_))
++#endif
+ #define _BIT_(_bit_)		((unsigned int)(1 << (_bit_)))
+ #define _BITMASK_(_bits_)	(((unsigned int) -1 >> (31 - ((1) ?	\
+ 				_bits_))) & ~((1U << ((0) ? _bits_)) - 1))
+diff --git a/drivers/misc/mediatek/thermal/v1/mtk_thermal_monitor.c b/drivers/misc/mediatek/thermal/v1/mtk_thermal_monitor.c
+index 6de6fa5..c3a2482 100644
+--- a/drivers/misc/mediatek/thermal/v1/mtk_thermal_monitor.c
++++ b/drivers/misc/mediatek/thermal/v1/mtk_thermal_monitor.c
+@@ -870,7 +870,9 @@ static const struct proc_ops _mtkthermal_tz_fops = {
+ 	.proc_release = single_release,
+ };
+ 
++#ifndef MIN
+ #define MIN(_a_, _b_) ((_a_) < (_b_) ? (_a_) : (_b_))
++#endif
+ 
+ /* No parameter check in this internal function */
+ static long _mtkthermal_update_and_get_sma
+-- 
+2.53.0
+

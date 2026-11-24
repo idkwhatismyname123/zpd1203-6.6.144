@@ -1,0 +1,11 @@
+{
+  "boot_a": {
+    "header_version": 2,
+    "page_size": 2048,
+    "kernel_addr": "0x40080000",
+    "ramdisk_addr": "0x47c80000",
+    "tags_addr": "0x4bc80000",
+    "dtb_addr": "0x4bc80000",
+    "os_version_raw": "0x18000187"
+  }
+}

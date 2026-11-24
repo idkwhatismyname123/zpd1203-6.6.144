@@ -1,0 +1,313 @@
+From 21a8dc39ea0f406d315ace9a256c780f225b253a Mon Sep 17 00:00:00 2001
+From: ZPD1203 Kernel Port <zpd1203@localhost>
+Date: Tue, 24 Nov 2026 18:27:15 +1000
+Subject: [PATCH 4/5] video/fbdev/simplefb: port ZPD1203 OVL0 L3 clear and
+ zpd_disp_regs debugfs
+
+---
+ drivers/video/fbdev/simplefb.c | 260 +++++++++++++++++++++++++++++++++
+ 1 file changed, 260 insertions(+)
+
+diff --git a/drivers/video/fbdev/simplefb.c b/drivers/video/fbdev/simplefb.c
+index 62f99f6fc..66cfd3968 100644
+--- a/drivers/video/fbdev/simplefb.c
++++ b/drivers/video/fbdev/simplefb.c
+@@ -25,6 +25,203 @@
+ #include <linux/of_platform.h>
+ #include <linux/parser.h>
+ #include <linux/regulator/consumer.h>
++#include <linux/debugfs.h>
++#include <linux/of_address.h>
++#include <linux/seq_file.h>
++#include <linux/string.h>
++
++/* LK framebuffer reservation and DAL address from the ZPD1203 PL/LK log. */
++#define ZPD_LK_L3_PHYS		0x7dcaa000
++/* mediatek_v2/mtk_disp_ovl.c: DISP_REG_OVL_SRC_CON, BIT(layer). */
++#define ZPD_OVL_SRC_CON		0x02c
++
++struct zpd_disp_snap {
++	u32 cg0, cg1;
++	bool has_ovl, has_rdma, has_dsi, has_pwm;
++	bool has_apmixed, has_mipitx, has_larb0, has_l3_pixel;
++	u32 apmixed_con5, mipitx_lane, mipitx_pll_pwr;
++	u32 mipitx_pll_con0, mipitx_pll_con1;
++	u32 larb0_sta, larb0_ovl_nonsec, larb0_ovl_ostd;
++	u32 ovl_sta, ovl_intsta, ovl_en, ovl_roi, ovl_src_con;
++	u32 ovl_src_after;
++	u32 ovl_l0_con, ovl_l0_sz, ovl_l0_pitch, ovl_l0_addr;
++	u32 ovl_l3_con, ovl_l3_addr, ovl_l3_pixel;
++	u32 rdma_intsta, rdma_gcon, rdma_sz0, rdma_sz1;
++	u32 dsi_start, dsi_intsta, dsi_con, dsi_mode;
++	u32 pwm_en, pwm_commit, pwm_con0, pwm_con1, pwm_1c;
++};
++
++static void zpd_capture_regs(struct zpd_disp_snap *s,
++			     const struct fb_info *info,
++			     void __iomem *l3_pixel, bool clear_l3)
++{
++	void __iomem *base;
++
++	memset(s, 0, sizeof(*s));
++	base = ioremap(0x14000000, 0x1000);
++	if (!base)
++		return;
++	s->cg0 = readl(base + 0x100);
++	s->cg1 = readl(base + 0x110);
++	iounmap(base);
++
++	if ((s->cg0 & BIT(7)) == 0) {
++		base = ioremap(0x1400b000, 0x1000);
++		if (base) {
++			s->has_ovl = true;
++			s->ovl_sta = readl(base + 0x000);
++			s->ovl_intsta = readl(base + 0x008);
++			s->ovl_en = readl(base + 0x00c);
++			s->ovl_roi = readl(base + 0x020);
++			s->ovl_src_con = readl(base + ZPD_OVL_SRC_CON);
++			s->ovl_src_after = s->ovl_src_con;
++			s->ovl_l0_con = readl(base + 0x030);
++			s->ovl_l0_sz = readl(base + 0x038);
++			s->ovl_l0_pitch = readl(base + 0x044);
++			s->ovl_l0_addr = readl(base + 0x0f40);
++			s->ovl_l3_con = readl(base + 0x090);
++			s->ovl_l3_addr = readl(base + 0x0fa0);
++			if (l3_pixel && s->ovl_l3_addr == ZPD_LK_L3_PHYS) {
++				s->has_l3_pixel = true;
++				s->ovl_l3_pixel = readl(l3_pixel);
++			}
++			/* Keep L0 and any unrelated SRC_CON bits intact. */
++			if (clear_l3 && s->has_l3_pixel && (s->ovl_en & BIT(0)) &&
++			    s->ovl_l0_addr == info->fix.smem_start &&
++			    (s->ovl_src_con & GENMASK(3, 0)) == (BIT(0) | BIT(3))) {
++				writel(s->ovl_src_con & ~BIT(3),
++				       base + ZPD_OVL_SRC_CON);
++				s->ovl_src_after = readl(base + ZPD_OVL_SRC_CON);
++			}
++			iounmap(base);
++		}
++	}
++
++	if ((s->cg0 & BIT(10)) == 0) {
++		base = ioremap(0x1400d000, 0x1000);
++		if (base) {
++			s->has_rdma = true;
++			s->rdma_intsta = readl(base + 0x004);
++			s->rdma_gcon = readl(base + 0x010);
++			s->rdma_sz0 = readl(base + 0x014);
++			s->rdma_sz1 = readl(base + 0x018);
++			iounmap(base);
++		}
++	}
++
++	if ((s->cg0 & BIT(17)) == 0) {
++		base = ioremap(0x14014000, 0x1000);
++		if (base) {
++			s->has_dsi = true;
++			s->dsi_start = readl(base + 0x000);
++			s->dsi_intsta = readl(base + 0x00c);
++			s->dsi_con = readl(base + 0x010);
++			s->dsi_mode = readl(base + 0x014);
++			iounmap(base);
++		}
++	}
++
++	/* mt6768.dts apmixed, clk-mt6768.c apmixed_mipid026m (active high). */
++	base = ioremap(0x1000c000, 0x1000);
++	if (base) {
++		s->has_apmixed = true;
++		s->apmixed_con5 = readl(base + 0x014);
++		iounmap(base);
++	}
++
++	/* mt6768.dts mipi_tx_config0 and mediatek_v2/mtk_mipi_tx.h. */
++	if (!(s->cg0 & (BIT(17) | BIT(30))) &&
++	    s->has_apmixed && (s->apmixed_con5 & BIT(16))) {
++		base = ioremap(0x11c80000, 0x1000);
++		if (base) {
++			s->has_mipitx = true;
++			s->mipitx_lane = readl(base + 0x00c);
++			s->mipitx_pll_pwr = readl(base + 0x028);
++			s->mipitx_pll_con0 = readl(base + 0x02c);
++			s->mipitx_pll_con1 = readl(base + 0x030);
++			iounmap(base);
++		}
++	}
++
++	/* mt6768.dts smi_larb0, mtk-smi.c, M4U_PORT_DISP_OVL0 = port 0. */
++	if (!(s->cg0 & (BIT(19) | BIT(20)))) {
++		base = ioremap(0x14003000, 0x1000);
++		if (base) {
++			s->has_larb0 = true;
++			s->larb0_sta = readl(base + 0x000);
++			s->larb0_ovl_ostd = readl(base + 0x200);
++			s->larb0_ovl_nonsec = readl(base + 0x380);
++			iounmap(base);
++		}
++	}
++
++	base = ioremap(0x1100e000, 0x1000);
++	if (base) {
++		s->has_pwm = true;
++		s->pwm_en = readl(base + 0x000);
++		s->pwm_commit = readl(base + 0x00c);
++		s->pwm_con0 = readl(base + 0x010);
++		s->pwm_con1 = readl(base + 0x014);
++		s->pwm_1c = readl(base + 0x01c);
++		iounmap(base);
++	}
++}
++
++static void zpd_print_snap(struct seq_file *m, const char *tag,
++			   const struct zpd_disp_snap *s)
++{
++	seq_printf(m, "[%s] MMSYS CG_CON0=0x%08x CG_CON1=0x%08x (ovl=%d rdma=%d dsi=%d smi_com=%d smi_larb0=%d dig_dsi=%d)\n",
++		   tag, s->cg0, s->cg1,
++		   !(s->cg0 & BIT(7)), !(s->cg0 & BIT(10)), !(s->cg0 & BIT(17)),
++		   !(s->cg0 & BIT(19)), !(s->cg0 & BIT(20)), !(s->cg0 & BIT(30)));
++	if (s->has_ovl) {
++		seq_printf(m, "  OVL0:  STA=0x%08x INTSTA=0x%08x EN=0x%08x ROI=0x%08x SRC_CON=0x%08x\n",
++			   s->ovl_sta, s->ovl_intsta, s->ovl_en, s->ovl_roi, s->ovl_src_con);
++		seq_printf(m, "  OVL0 L0: CON=0x%08x SZ=0x%08x PITCH=0x%08x ADDR=0x%08x | L3: CON=0x%08x ADDR=0x%08x\n",
++			   s->ovl_l0_con, s->ovl_l0_sz, s->ovl_l0_pitch, s->ovl_l0_addr,
++			   s->ovl_l3_con, s->ovl_l3_addr);
++		if (s->has_l3_pixel)
++			seq_printf(m, "  OVL0 L3: px(0,0)=0x%08x\n", s->ovl_l3_pixel);
++		else
++			seq_puts(m, "  OVL0 L3: pixel unavailable (LK buffer not verified/mapped)\n");
++		if (s->ovl_src_after != s->ovl_src_con)
++			seq_printf(m, "  OVL0: SRC_CON after clearing L3=0x%08x\n",
++				   s->ovl_src_after);
++	} else {
++		seq_puts(m, "  OVL0:  GATED (CG_CON0 bit7=1)\n");
++	}
++	if (s->has_rdma) {
++		seq_printf(m, "  RDMA0: INT_STA=0x%08x GLOBAL_CON=0x%08x SIZE0=0x%08x SIZE1=0x%08x\n",
++			   s->rdma_intsta, s->rdma_gcon, s->rdma_sz0, s->rdma_sz1);
++	} else {
++		seq_puts(m, "  RDMA0: GATED (CG_CON0 bit10=1)\n");
++	}
++	if (s->has_dsi) {
++		seq_printf(m, "  DSI0:  START=0x%08x INTSTA=0x%08x CON=0x%08x MODE=0x%08x\n",
++			   s->dsi_start, s->dsi_intsta, s->dsi_con, s->dsi_mode);
++	} else {
++		seq_puts(m, "  DSI0:  GATED (CG_CON0 bit17=1)\n");
++	}
++	if (s->has_apmixed)
++		seq_printf(m, "  APMIXED: AP_PLL_CON5=0x%08x MIPID0_26M_EN=%d\n",
++			   s->apmixed_con5, !!(s->apmixed_con5 & BIT(16)));
++	if (s->has_mipitx)
++		seq_printf(m, "  MIPI_TX0: LANE_CON=0x%08x PLL_PWR=0x%08x PLL_CON0=0x%08x PLL_CON1=0x%08x\n",
++			   s->mipitx_lane, s->mipitx_pll_pwr,
++			   s->mipitx_pll_con0, s->mipitx_pll_con1);
++	else
++		seq_puts(m, "  MIPI_TX0: unavailable (clock gated or mapping failed)\n");
++	if (s->has_larb0)
++		seq_printf(m, "  SMI_LARB0: STAT=0x%08x OVL0_OSTDL=0x%08x OVL0_NONSEC_CON=0x%08x (MMU_EN=%d)\n",
++			   s->larb0_sta, s->larb0_ovl_ostd,
++			   s->larb0_ovl_nonsec, !!(s->larb0_ovl_nonsec & BIT(0)));
++	else
++		seq_puts(m, "  SMI_LARB0: unavailable (clock gated or mapping failed)\n");
++	if (s->has_pwm) {
++		seq_printf(m, "  PWM0:  EN=0x%08x COMMIT=0x%08x CON0=0x%08x CON1=0x%08x REG1C=0x%08x\n",
++			   s->pwm_en, s->pwm_commit, s->pwm_con0, s->pwm_con1, s->pwm_1c);
++	}
++}
+ 
+ static const struct fb_fix_screeninfo simplefb_fix = {
+ 	.id		= "simple",
+@@ -69,6 +266,9 @@ static int simplefb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
+ 
+ struct simplefb_par {
+ 	u32 palette[PSEUDO_PALETTE_SIZE];
++	struct dentry *zpd_debugfs;
++	void __iomem *zpd_l3_pixel;
++	struct zpd_disp_snap zpd_boot_snap;
+ 	resource_size_t base;
+ 	resource_size_t size;
+ 	struct resource *mem;
+@@ -84,6 +284,55 @@ struct simplefb_par {
+ #endif
+ };
+ 
++static int zpd_disp_regs_show(struct seq_file *m, void *v)
++{
++	const struct fb_info *info = m->private;
++	const struct simplefb_par *par = info->par;
++	struct zpd_disp_snap live;
++	u32 px_0_0 = 0, px_mid = 0;
++	u32 stride = info->fix.line_length;
++	u32 size = info->fix.smem_len;
++	u64 mid_off = 1000ULL * stride + 600U * 4U;
++
++	zpd_capture_regs(&live, info, par->zpd_l3_pixel, false);
++	zpd_print_snap(m, "BOOT", &par->zpd_boot_snap);
++	zpd_print_snap(m, "LIVE", &live);
++	if (size >= sizeof(u32))
++		px_0_0 = readl(info->screen_base);
++	if (stride && mid_off + sizeof(u32) <= size)
++		px_mid = readl(info->screen_base + mid_off);
++	seq_printf(m, "[FB0 screen_base] stride=%u size=%u px(0,0)=0x%08x px(600,1000)=0x%08x\n",
++		   stride, size, px_0_0, px_mid);
++	return 0;
++}
++DEFINE_SHOW_ATTRIBUTE(zpd_disp_regs);
++
++static void __iomem *zpd_map_l3_pixel(struct device *dev)
++{
++	struct device_node *reserved, *node;
++	struct resource res;
++	void __iomem *pixel = NULL;
++
++	reserved = of_find_node_by_path("/reserved-memory");
++	if (!reserved)
++		return NULL;
++
++	/* LK injects the no-map framebuffer node at boot with a variable index. */
++	for_each_available_child_of_node(reserved, node) {
++		if (of_address_to_resource(node, 0, &res) ||
++		    !of_property_read_bool(node, "no-map") ||
++		    res.start > ZPD_LK_L3_PHYS ||
++		    res.end < ZPD_LK_L3_PHYS + sizeof(u32) - 1)
++			continue;
++
++		pixel = devm_ioremap_wc(dev, ZPD_LK_L3_PHYS, sizeof(u32));
++		of_node_put(node);
++		break;
++	}
++	of_node_put(reserved);
++	return pixel;
++}
++
+ static void simplefb_clocks_destroy(struct simplefb_par *par);
+ static void simplefb_regulators_destroy(struct simplefb_par *par);
+ 
+@@ -519,6 +768,15 @@ static int simplefb_probe(struct platform_device *pdev)
+ 
+ 	dev_info(&pdev->dev, "fb%d: simplefb registered!\n", info->node);
+ 
++	if (of_property_read_bool(pdev->dev.of_node, "mediatek,zpd1203-lk-display")) {
++		par->zpd_l3_pixel = zpd_map_l3_pixel(&pdev->dev);
++		zpd_capture_regs(&par->zpd_boot_snap, info, par->zpd_l3_pixel, true);
++		dev_info(&pdev->dev, "ZPD OVL0 SRC_CON: %#x -> %#x\n",
++			 par->zpd_boot_snap.ovl_src_con, par->zpd_boot_snap.ovl_src_after);
++		par->zpd_debugfs = debugfs_create_file("zpd_disp_regs", 0444, NULL,
++						      info, &zpd_disp_regs_fops);
++	}
++
+ 	return 0;
+ 
+ error_regulators:
+@@ -538,7 +796,9 @@ static int simplefb_probe(struct platform_device *pdev)
+ static void simplefb_remove(struct platform_device *pdev)
+ {
+ 	struct fb_info *info = platform_get_drvdata(pdev);
++	struct simplefb_par *par = info->par;
+ 
++	debugfs_remove(par->zpd_debugfs);
+ 	/* simplefb_destroy takes care of info cleanup */
+ 	unregister_framebuffer(info);
+ }
+-- 
+2.53.0
+

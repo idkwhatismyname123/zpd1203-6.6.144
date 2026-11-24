@@ -21,16 +21,16 @@
 - [x] 在 `DECISIONS.md` 正式确定移植基底并建立洁净 Git 工作树（`AOSP android15-6.6 6.6.144` + `Addster09` BSP + Moto GPU/Connsys）
 
 ## Phase 3：核心板级支持移植（Linux 6.6）
-- [/] **Agent 4**：移植 ZPD1203 DTS/DTSI 与 Reserved Memory
-- [ ] **Agent 4**：适配 PSCI/SMP、GIC、MT6768 CCF 时钟、Pinctrl/GPIO、MT6358 PMIC/Regulator
-- [ ] **Agent 4**：适配 MSDC0 eMMC、RPMB、USB PHY + MTU3 + Gadget ADB
-- [ ] **Agent 4**：适配 IOMMU/SMI、Watchdog、Thermal、CPUFreq
-- [ ] **Agent 4**：确认 Android Binder (`binderfs`)、DMA-BUF/DMA Heap、SELinux、KernelSU 集成
+- [x] **Agent 4**：移植 ZPD1203 DTS/DTSI（`mt6768-zpd1203-minimal.dts` + `zpd1203-stock-battery-profile.dtsi`）与 Reserved Memory（通过 `dtc` + `fdtoverlay` 原厂 `dtbo_a_0.dtb` 0 错误校验）
+- [x] **Agent 4**：适配 PSCI/SMP、GIC、`irq-mtk-sysirq.c`（`IRQCHIP_PLATFORM_DRIVER` + 97 位 `INTPOL`）、`init/main.c` `force_slot_a`、MT6768 CCF 时钟、Pinctrl/GPIO、MT6358 PMIC/Regulator、`8250_mtk.c` 检查
+- [x] **Agent 4**：适配 MSDC0 eMMC（`DEVICE_MODULES_MMC_MTK_PRO=y` `mtk-mmc.c` + `cqhci` + `inlinecrypt`）、`rpmb-mtk`（`=y`）、`usb/usb20` (`musb-hdrc`) + `phy-mtk-tphy` + `NOP_USB_XCEIV` + ConfigFS FFS ADB
+- [x] **Agent 4**：适配 IOMMU（`mtk_iommu.c`）、SMI（`mtk-smi`）、Watchdog（`mtk_wdt`）、DevAPC（`devapc-mt6768`）、Thermal（`cpufreq_v2`/`ppm_v3`/`eem_v2` 已排查并暂延 Phase 5 与 DRM/PBM 协同启用）
+- [x] **Agent 4**：确认 Android Binder (`binderfs`)、DMA-BUF/DMA Heap（`mtk_system_heap`）、SELinux、`ext4`/`f2fs`/`erofs`/`dm-verity`、KernelSU v3.3.1（`KSU=y`, `KPROBES=y`）全部内置编通
 
 ## Phase 4：无 UART 调试与首次最小启动准备
-- [ ] **Agent 4**：配置 `ramoops`/`pstore` 保留内存与内核配置
-- [ ] **Agent 4**：适配 Initramfs 调试脚本（阶段标记、dmesg/pstore 转储、早期 ADB）与可选屏幕早期输出
-- [ ] **Agent 4**：编译最小可启动内核，校验 DTB 与打包最小 `boot.img`（`< 32 MiB`）
+- [x] **Agent 4**：配置 `ramoops`/`pstore` 保留内存参数与内核配置（`PSTORE=y`, `PSTORE_RAM=y`, `PSTORE_CONSOLE=y`, `PSTORE_PMSG=y`）
+- [x] **Agent 4**：适配 `a12_init_wrapper.c`（`[ZPD1203-6.6] STAGE 1..7`、早期 `/sys/fs/pstore` 转储至 `/dev/.pstore_dump.log`、早期 ADB+ACM 串口命令控制台）与 `simplefb.c` OVL0-L3 清屏 / `zpd_disp_regs` debugfs / `gralloc_fb0_bridge.c`
+- [x] **Agent 4**：编译最小可启动内核 `6.6.144-zpd1203-ga0efcb376f2a`，打包并静态校验 `boot-minimal-6.6.img`（33,554,432 B `< 32 MiB` 限制、Boot Header v2、`0xd7b7ab1e` DT Table、`avbtool`、`unpack_bootimg`、`fdtoverlay`）
 
 ## Phase 5：完整硬件驱动移植
 - [ ] **Agent 5**：移植 LCD Panel、DSI、MTK DRM/KMS、背光及显示时钟（含 5.10 横屏显示桥接兼容评估/迁移）

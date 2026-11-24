@@ -1,0 +1,74 @@
+From c3fcb61c6fd20cf44264901e49234d3ff98b0f79 Mon Sep 17 00:00:00 2001
+From: ZPD1203 Kernel Port <zpd1203@localhost>
+Date: Tue, 24 Nov 2026 18:27:15 +1000
+Subject: [PATCH 2/5] irqchip/mtk-sysirq: port platform driver and
+ mediatek,intpol-init for MT6768
+
+---
+ drivers/irqchip/irq-mtk-sysirq.c | 39 ++++++++++++++++++++++++++++++--
+ 1 file changed, 37 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/irqchip/irq-mtk-sysirq.c b/drivers/irqchip/irq-mtk-sysirq.c
+index 586e52d54..2f025eb57 100644
+--- a/drivers/irqchip/irq-mtk-sysirq.c
++++ b/drivers/irqchip/irq-mtk-sysirq.c
+@@ -120,7 +120,7 @@ static const struct irq_domain_ops sysirq_domain_ops = {
+ 	.free		= irq_domain_free_irqs_common,
+ };
+ 
+-static int __init mtk_sysirq_of_init(struct device_node *node,
++static int mtk_sysirq_of_init(struct device_node *node,
+ 				     struct device_node *parent)
+ {
+ 	struct irq_domain *domain, *domain_parent;
+@@ -215,6 +215,34 @@ static int __init mtk_sysirq_of_init(struct device_node *node,
+ 	}
+ 	raw_spin_lock_init(&chip_data->lock);
+ 
++	{
++		int n_init = of_property_count_u32_elems(node, "mediatek,intpol-init");
++		void __iomem *base = chip_data->intpol_bases[0];
++
++		if (n_init > 0) {
++			if (n_init > (int)chip_data->intpol_words[0])
++				n_init = chip_data->intpol_words[0];
++
++			pr_info("mtk_sysirq: pre-intpol w0=%08x w1=%08x w2=%08x w3=%08x w4=%08x w5=%08x\n",
++				readl_relaxed(base + 0), readl_relaxed(base + 4),
++				readl_relaxed(base + 8), readl_relaxed(base + 12),
++				readl_relaxed(base + 16), readl_relaxed(base + 20));
++
++			for (i = 0; i < n_init; i++) {
++				u32 val = 0;
++
++				if (of_property_read_u32_index(node, "mediatek,intpol-init", i, &val) == 0 && val) {
++					u32 cur = readl_relaxed(base + i * 4);
++
++					writel_relaxed(cur | val, base + i * 4);
++				}
++			}
++			mb();
++			pr_info("mtk_sysirq: post-intpol (%d words) w3=%08x w4=%08x\n",
++				n_init, readl_relaxed(base + 12), readl_relaxed(base + 16));
++		}
++	}
++
+ 	return 0;
+ 
+ out_free_which_word:
+@@ -232,4 +260,11 @@ static int __init mtk_sysirq_of_init(struct device_node *node,
+ 	kfree(chip_data);
+ 	return ret;
+ }
+-IRQCHIP_DECLARE(mtk_sysirq, "mediatek,mt6577-sysirq", mtk_sysirq_of_init);
++/*
++ * Deferred to platform driver so INTPOL polarity bits are initialized before
++ * device drivers request SPIs while keeping clean DT matching on MT6768.
++ */
++IRQCHIP_PLATFORM_DRIVER_BEGIN(mtk_sysirq)
++IRQCHIP_MATCH("mediatek,mt6577-sysirq", mtk_sysirq_of_init)
++IRQCHIP_PLATFORM_DRIVER_END(mtk_sysirq)
++MODULE_LICENSE("GPL v2");
+-- 
+2.53.0
+

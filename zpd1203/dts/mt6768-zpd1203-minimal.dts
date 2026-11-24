@@ -1,0 +1,220 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Minimal Linux 6.6 Device Tree for ZYB ZPD1203 (ZYBPAD / k69v1_64)
+ * Verified SoC: MediaTek MT6769V/CB (hw_code=0x707, MT6768 platform)
+ *
+ * Adapted cleanly from kernel_device_modules-6.6 mt6768.dts, stock firmware
+ * artifacts (/home/asus/zpd1203-6.6/extracted_stock/), and verified 5.10.240
+ * ZPD1203 minimal bring-up hardware map.
+ */
+
+#include "mt6768.dts"
+#include "zpd1203-stock-battery-profile.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+
+/ {
+	model = "ZYB ZPD1203 (MT6769V/CB / k69v1_64 Linux 6.6)";
+	compatible = "mediatek,MT6768";
+
+	/*
+	 * Matches LK log:
+	 *   device_name: /debug-kinfo, mblock_name: aee_debug_kinfo success
+	 * LK binds reserved-memory:aee_debug_kinfo (0x4d000000, 0x10000) here.
+	 */
+	debug_kinfo: debug-kinfo {
+		compatible = "google,debug-kinfo";
+		status = "okay";
+	};
+
+	/*
+	 * Symbol compatibility targets for stock dtbo_a (dtbo_a_0.dtb) so LK's
+	 * ufdt_apply_overlay() / fdtoverlay succeeds cleanly without modifying
+	 * stock dtbo_a. Verified against dtbo_a_0.dts __fixups__.
+	 * Intentionally omit `compatible` so no minimal bring-up driver binds.
+	 */
+	lcm: lcm { };
+	flashlights_aw36515: flashlights_aw36515 { };
+	hall: hall { };
+	hall_sensor: hall_sensor { };
+	battery_swell_det: battery_swell_det { };
+	zlt_alsps: zlt_alsps { };
+};
+
+&chosen {
+	#address-cells = <2>;
+	#size-cells = <2>;
+	ranges;
+
+	/*
+	 * Do NOT hardcode ramoops.* here or use CONFIG_CMDLINE_FORCE:
+	 * Stock Preloader reserves pstore at 0x4d010000 (0xe0000, map:0) and
+	 * LK dynamically appends ramoops.mem_address=0x4d010000
+	 * ramoops.mem_size=0xe0000 ramoops.pmsg_size=0x10000
+	 * ramoops.console_size=0x40000 plus androidboot.* to bootargs.
+	 */
+	bootargs = "console=tty0 console=ttyS0,921600n1 root=/dev/ram vmalloc=400M swiotlb=noforce 8250.nr_uarts=2 cgroup.memory=nosocket,nokmem firmware_class.path=/vendor/firmware loop.max_part=7 ignore_loglevel loglevel=8";
+
+	/*
+	 * Early no-UART visual console using LK's live OVL0 layer0 framebuffer.
+	 * Verified from expdb.img PL/LK log:
+	 *   mblock_reserve-R[13] framebuffer: start=0x7d350000, size=0x20b0000, map:0
+	 *   OVL0 layer=0: addr=0x7d350000, pitch=4864 (1216*4), 1200x2000, eBGRA8888
+	 *   OVL0 layer=3 (DAL overlay): starts at 0x7dcaa000 (= 0x7d350000 + 0x95a000)
+	 * Requires clk_ignore_unused pd_ignore_unused regulator_ignore_unused on
+	 * cmdline so MMSYS/DSI clocks & rails stay alive while DRM is disabled.
+	 */
+	framebuffer0: framebuffer@7d350000 {
+		compatible = "simple-framebuffer";
+		reg = <0x0 0x7d350000 0x0 0x0095a000>;
+		width = <1200>;
+		height = <2000>;
+		stride = <4864>;
+		format = "a8r8g8b8";
+		mediatek,zpd1203-lk-display;
+		status = "okay";
+	};
+};
+
+/*
+ * Force MUSB HDRC (0x11200000) into peripheral mode for minimal bring-up so
+ * USB ConfigFS FFS ADB + ACM gadget enumerate immediately without requiring
+ * unported wusb3801 / aw35615 Type-C role-switch drivers.
+ */
+&usb {
+	dr_mode = "peripheral";
+	/delete-property/ usb-role-switch;
+	status = "okay";
+};
+
+/* Stock DTB has mmc1 disabled; ZPD1203 boots from eMMC on mmc0. */
+&mmc0 {
+	status = "okay";
+};
+
+&mmc1 {
+	status = "disabled";
+};
+
+/*
+ * Motorola/MTK MT6768 WMT platform/mt6768.c requests these four supplies.
+ */
+&consys {
+	vcn18-supply = <&mt_pmic_vcn18_ldo_reg>;
+	vcn28-supply = <&mt_pmic_vcn28_ldo_reg>;
+	vcn33_bt-supply = <&mt_pmic_vcn33_bt_ldo_reg>;
+	vcn33_wifi-supply = <&mt_pmic_vcn33_wifi_ldo_reg>;
+};
+
+/* Keep battery/gauge/charger disabled in Phase 4 minimal boot (no mt6370 on board). */
+&mtk_gauge {
+	/delete-property/ charger;
+	status = "disabled";
+};
+
+&battery_manager {
+	/delete-property/ charger;
+	status = "disabled";
+};
+
+&extcon_usb {
+	/delete-property/ charger;
+	/delete-property/ vbus-supply;
+	status = "disabled";
+};
+
+&mtk_ctd {
+	/delete-property/ bc12-psy-port0;
+	status = "disabled";
+};
+
+/*
+ * Stock dtbo_a fragment@64 enables SPI4 zlt_ts@0 (GPIO6 IRQ, shared GPIO158 RST).
+ * Keep placeholder here for Phase 4 minimal bring-up until Phase 5 touch driver port.
+ */
+&spi4 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	zlt_ts@0 {
+		reg = <0>;
+		status = "disabled";
+		himax,zpd1203-touch;
+		himax,irq-gpio = <&pio 6 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+/* Keep MTK DRM disabled during minimal simple-framebuffer bring-up. */
+&dispsys_config {
+	status = "disabled";
+};
+
+&dsi0 {
+	status = "disabled";
+};
+
+/* Disable sub-PMIC node not present on ZPD1203 (uses sgm41510 @ i2c5 0x6b). */
+&mt6370 {
+	status = "disabled";
+};
+
+/* Stock 4.19 ikconfig has CONFIG_MTK_DVFSRC disabled; avoid incompatible DVFSRC SMC to stock ATF. */
+&dvfsrc {
+	status = "disabled";
+};
+
+/*
+ * Stock 4.19 Preloader/LK/ATF leaves MT6768 INTPOL (0x0c53a650) uninverted
+ * (stock 4.19 used mtk_sysirq with IRQ_TYPE_LEVEL_LOW / EDGE_FALLING).
+ * Linux 6.6 mt6768.dts routes SPIs directly to &gic as IRQ_TYPE_LEVEL_HIGH.
+ * Program all 97 verified active-low / falling-edge SPI polarity bits derived
+ * from stock DTB before device drivers call request_irq().
+ */
+&sysirq {
+	mediatek,intpol-init = <0x00000000 0x00000000 0x00004a04 0x003ffffe
+				0xf01e6de0 0x00014e7b 0x80000808 0x1cedfff7
+				0x387ec02f 0x000000a0>;
+};
+
+/* Prevent regulator_init_complete from powering down LPDDR4 vdram2 at 60s. */
+&mt_pmic_vdram2_ldo_reg {
+	regulator-always-on;
+};
+
+/*
+ * LK jt120wul005 init enables MT6358 VIBR at 1.8 V.
+ * The BSP vibrator requests 2.3-3.2 V on this rail; keep 1.8 V always-on.
+ */
+&mt_pmic_vibr_ldo_reg {
+	regulator-min-microvolt = <1800000>;
+	regulator-max-microvolt = <1800000>;
+	regulator-always-on;
+};
+
+&regulator_vibrator {
+	status = "disabled";
+};
+
+/* Bind MT6358 vgpu / vsram_gpu regulators required by gpufreq_mt6768.c probe. */
+&gpufreq {
+	vgpu-supply = <&mt_pmic_vgpu_buck_reg>;
+	vsram_gpu-supply = <&mt_pmic_vsram_gpu_ldo_reg>;
+};
+
+/*
+ * Restore MT6358 vsim1 / vsim2 regulator labels omitted from 6.6 mt6358_6768.dtsi
+ * so stock dtbo_a fragment@53 / fragment@54 phandles resolve cleanly.
+ */
+&mt6358regulator {
+	mt_pmic_vsim1_ldo_reg: ldo_vsim1 {
+		regulator-name = "vsim1";
+		regulator-min-microvolt = <1700000>;
+		regulator-max-microvolt = <3100000>;
+		regulator-enable-ramp-delay = <540>;
+	};
+	mt_pmic_vsim2_ldo_reg: ldo_vsim2 {
+		regulator-name = "vsim2";
+		regulator-min-microvolt = <1700000>;
+		regulator-max-microvolt = <3100000>;
+		regulator-enable-ramp-delay = <540>;
+	};
+};

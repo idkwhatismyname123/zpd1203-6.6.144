@@ -1,0 +1,42 @@
+From 4b4293088ed56672c5a2b5bfabfc4ef0427c1fd2 Mon Sep 17 00:00:00 2001
+From: ZPD1203 Kernel Port <zpd1203@localhost>
+Date: Tue, 24 Nov 2026 18:27:15 +1000
+Subject: [PATCH 3/5] init: add mt6768.force_slot_a=1 cmdline slot_a override
+
+---
+ init/main.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/init/main.c b/init/main.c
+index 825a775f7..da13a7f55 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -682,6 +682,25 @@ static void __init setup_command_line(char *command_line)
+ 		}
+ 	}
+ 
++	if (strstr(saved_command_line, "mt6768.force_slot_a=1")) {
++		char *p = saved_command_line;
++
++		while ((p = strstr(p, "androidboot.slot_suffix=_b")) != NULL) {
++			if ((p == saved_command_line || p[-1] == ' ') &&
++			    (p[26] == '\0' || p[26] == ' '))
++				p[25] = 'a';
++			p += 26;
++		}
++		p = saved_command_line;
++		while ((p = strstr(p, "androidboot.slot=b")) != NULL) {
++			if ((p == saved_command_line || p[-1] == ' ') &&
++			    (p[18] == '\0' || p[18] == ' '))
++				p[17] = 'a';
++			p += 18;
++		}
++		pr_info("mt6768: forced androidboot.slot_suffix=_a for boot_b bring-up\n");
++	}
++
+ 	saved_command_line_len = strlen(saved_command_line);
+ }
+ 
+-- 
+2.53.0
+
