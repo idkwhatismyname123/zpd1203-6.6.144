@@ -1,7 +1,7 @@
 # 当前工作现场交接文档 (HANDOFF.md)
 
 - **最后更新**：2026-11-25
-- **当前状态**：已完成第 #4 轮实机 `COM20` 日志抓包分析（零重启循环、SELinux `permissive=1`、`Connsys/WMT`/`mt6768-afe-pcm`/`bq2589x`/`adbd` 均已实机运行，定位 GED 18/22-region ABI 不匹配、`i2c2-4` 缺 `ch-offset-i2c = <0x100>` 致 `aw87xxx` 阻塞 104s、`a12_init_wrapper` 纯 ACM 锁死及 `LOG_BUF_SHIFT` 过小）。**已完成全部 4 项修复并清洁全量重编校验通过新版 `full` (`6.6.144-zpd1203-ga8f0da857734` / `device_modules` `4779d25e29f7`)**；等待用户切入 Fastboot 或指示 via `COM20 reboot-fb` 后刷入 `boot_a`。
+- **当前状态**：`6.6.144-zpd1203-ga8f0da857734` 已**实机成功进入 Android 桌面**（`sys.boot_completed=1`，`ADB + COM` 复合 `0x0e8d:0x2006`、`GLES: ARM, Mali-G52 MC2, OpenGL ES 3.2`、Himax 触屏与手写笔、音频卡 `mt6768-mt6358` + `aw87xxx@59/5A`、`lcd-backlight`、`sgm41510` 充电在线、11 枚 `.ko` 全加载）。已通过 `adb shell` 实时解除 `vtcon1/bind` 关掉当前屏幕跑码，并**重打包验证通过永久关闭 `fbcon` 屏幕跑码的新版 `full` (`console=ttyS0,921600n1 fbcon=map:9`)**；等待用户确认后刷入 `boot_a`。
 
 ## 1. 洁净源码仓库基线（全部 8 个 WSL2 仓库均已提交且 `clean=True`，零 `-dirty`）
 
@@ -19,10 +19,10 @@
 - 输出内核版本标识：**`6.6.144-zpd1203-ga8f0da857734`**。
 - 全套 `git format-patch`（25 份补丁，含 `patches/phase7_pstore_fixes/` 新增 `device_modules` `0003`/`0004` 与 `kernel-6.6` `0002`）、DTS/DTSI、config、分析报告（5 份）与脚本已完整保存至 `d:\P3066\`。
 
-## 2. 已静态验证交付产物（新版 `full` 含 GED/I2C/Wrapper/1MiB-log 修复；`minimal` 仍为前版 `g79934f29bfe5`）
+## 2. 已静态验证交付产物（新版 `full` 含 `fbcon=map:9` 关闭屏幕跑码，内核二进制与 `a8f0da857734` 实机桌面版一致；`minimal` 仍为 `g79934f29bfe5`）
 
 - **全量产物**（`d:\P3066\out\full\`，校验详见 `out\full\SHA256SUMS.txt`）：
-  - `boot-full-6.6.img`：`33,554,432 B`（SHA256 `56f445606fa1a70813923931980e40398980342bf1a51fc035c8bf739016af1d`，raw `28,346,368 B`，命令行含 `console=tty0 fbcon=rotate:3,font:TER16x32 panic=8 printk.devkmsg=on loglevel=4 ... androidboot.mode=normal androidboot.selinux=permissive`）
+  - `boot-full-6.6.img`：`33,554,432 B`（SHA256 `8dd87ff74379bc3bee992b525f3f4106e8eb63ceba8e180fe574f3e9c3dac033`，raw `a0f16738024798f83ea05ab5e9e066155d4bf083b23986e0cada1d123dd6f422` / `28,346,368 B`，命令行含 `console=ttyS0,921600n1 fbcon=map:9 panic=8 printk.devkmsg=on loglevel=4 ... androidboot.mode=normal androidboot.selinux=permissive`）
   - `Image` (`42,764,800 B`), `Image.gz` (`15,798,390 B`), `mt6768-zpd1203.dtb` (`172,886 B`, `fdtoverlay` `203,097 B` PASS), `initramfs-full-6.6.cpio.xz` (`12,368,636 B`)
   - 11 枚 stripped `.ko`（`modules/*.ko`）与对应 11 枚调试 unstripped `.ko`（`unstripped/*.ko`），全部通过 `vermagic=6.6.144-zpd1203-ga8f0da857734` / `module_layout` CRC `0x2933d34f` / `llvm-nm` 0 未定义符号闭环。
 - **最小诊断保底产物**（`d:\P3066\out\minimal\`，前一构建 `g79934f29bfe5`）：

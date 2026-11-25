@@ -45,13 +45,14 @@ echo "=== [verify_build:$MODE] 1. Checking SHA256SUMS.txt ==="
 echo "[PASS] SHA256SUMS.txt verified cleanly"
 
 echo "=== [verify_build:$MODE] 2. Checking Boot Header v2, kernel banner, ramdisk, DT Table ==="
-python3 - "$IMG" "$STOCK_JSON" "$EXPECTED_RD_KIND" <<'PY'
+python3 - "$IMG" "$STOCK_JSON" "$EXPECTED_RD_KIND" "$MODE" <<'PY'
 import gzip, json, struct, sys
 from pathlib import Path
 
 img_path = Path(sys.argv[1])
 stock = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))["boot_a"]
 rd_kind = sys.argv[3]
+mode = sys.argv[4]
 data = img_path.read_bytes()
 errors = []
 
@@ -75,8 +76,12 @@ chk(f"0x{t_addr:x}" == stock["tags_addr"], f"tags_addr=0x{t_addr:x}")
 chk(f"0x{dtb_addr:x}" == stock["dtb_addr"], f"dtb_addr=0x{dtb_addr:x}")
 chk("mt6768.force_slot_a=1" in cmdline, "mt6768.force_slot_a=1 in cmdline")
 chk("panic=8" in cmdline, "panic=8 in cmdline")
-chk("console=tty0" in cmdline, "console=tty0 in cmdline")
-chk("fbcon=rotate:3,font:TER16x32" in cmdline, "fbcon=rotate:3,font:TER16x32 in cmdline")
+if mode == "full":
+    chk("fbcon=map:9" in cmdline, "fbcon=map:9 in cmdline")
+    chk("console=tty0" not in cmdline, "console=tty0 absent from full cmdline")
+else:
+    chk("console=tty0" in cmdline, "console=tty0 in cmdline")
+    chk("fbcon=rotate:3,font:TER16x32" in cmdline, "fbcon=rotate:3,font:TER16x32 in cmdline")
 chk("androidboot.mode=normal" in cmdline, "androidboot.mode=normal in cmdline")
 chk("androidboot.selinux=permissive" in cmdline, "androidboot.selinux=permissive in cmdline")
 
