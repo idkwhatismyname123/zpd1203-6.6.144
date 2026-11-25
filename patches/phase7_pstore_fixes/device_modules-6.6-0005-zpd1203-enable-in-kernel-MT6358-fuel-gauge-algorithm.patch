@@ -1,0 +1,58 @@
+From 8f118e0bd30ba99707f2d4978755cf0874f5fb45 Mon Sep 17 00:00:00 2001
+From: idkwhatismyname <107376203+idkwhatismyname123@users.noreply.github.com>
+Date: Wed, 25 Nov 2026 15:51:04 +1000
+Subject: [PATCH] zpd1203: enable in-kernel MT6358 fuel gauge algorithm
+
+---
+ .../boot/dts/mediatek/zpd1203-power-audio-wireless.dtsi    | 1 +
+ drivers/power/supply/mtk-battery-manager.c                 | 7 ++++++-
+ drivers/power/supply/mtk_battery.c                         | 3 ++-
+ 3 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/mediatek/zpd1203-power-audio-wireless.dtsi b/arch/arm64/boot/dts/mediatek/zpd1203-power-audio-wireless.dtsi
+index 7b8d569..4324feb 100644
+--- a/arch/arm64/boot/dts/mediatek/zpd1203-power-audio-wireless.dtsi
++++ b/arch/arm64/boot/dts/mediatek/zpd1203-power-audio-wireless.dtsi
+@@ -99,6 +99,7 @@ aw35615@22 {
+ 
+ &mtk_gauge {
+ 	charger = <&sgm41510>;
++	mediatek,kernel-fuel-gauge;
+ 	status = "okay";
+ };
+ 
+diff --git a/drivers/power/supply/mtk-battery-manager.c b/drivers/power/supply/mtk-battery-manager.c
+index 8ffe6b9..cfef940 100644
+--- a/drivers/power/supply/mtk-battery-manager.c
++++ b/drivers/power/supply/mtk-battery-manager.c
+@@ -1903,7 +1903,12 @@ static int mtk_bm_probe(struct platform_device *pdev)
+ 		pr_err("[%s]Fail to get chg_psy!\n", __func__);
+ 
+ 	bm_battery_service_init(bm);
+-	mtk_bm_create_netlink(pdev);
++	if (bm->gm1 != NULL && bm->gm1->algo.active) {
++		pr_info("[%s] kernel fuel gauge active, skip netlink daemon\n", __func__);
++		battery_update(bm);
++	} else {
++		mtk_bm_create_netlink(pdev);
++	}
+ 
+ 	mtk_power_misc_init(bm, &bm->sdc);
+ 
+diff --git a/drivers/power/supply/mtk_battery.c b/drivers/power/supply/mtk_battery.c
+index faefe1c..a16a725 100644
+--- a/drivers/power/supply/mtk_battery.c
++++ b/drivers/power/supply/mtk_battery.c
+@@ -3355,7 +3355,8 @@ int battery_init(struct platform_device *pdev)
+ 	b_recovery_mode = is_recovery_mode(gm);
+ 	gm->is_probe_done = true;
+ 
+-	if (ret == 0 && b_recovery_mode == 0)
++	if (ret == 0 && b_recovery_mode == 0 &&
++	    !of_property_read_bool(pdev->dev.of_node, "mediatek,kernel-fuel-gauge"))
+ 		bm_err(gm, "[%s]: daemon mode DONE\n", __func__);
+ 	else {
+ 		gm->algo.active = true;
+-- 
+2.53.0
+

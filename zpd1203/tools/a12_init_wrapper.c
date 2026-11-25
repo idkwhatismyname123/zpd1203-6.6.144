@@ -15,21 +15,27 @@
 #include <termios.h>
 #include <unistd.h>
 
-static const char *const zpd_module_order[] = {
-    "mali_mgm_mt6768.ko",
-    "mali_kbase_mt6768.ko",
-    "rfkill.ko",
-    "cfg80211.ko",
-    "btif_drv.ko",
-    "conn_md_drv.ko",
-    "connfem.ko",
-    "wmt_drv.ko",
-    "wmt_chrdev_wifi.ko",
-    "bt_drv_connac1x.ko",
-    "wlan_drv_gen4m.ko",
+struct zpd_module_entry {
+    const char *name;
+    int load_early;
 };
 
-#define ZPD_MOD_COUNT ((int)(sizeof(zpd_module_order) / sizeof(zpd_module_order[0])))
+static const struct zpd_module_entry zpd_modules[] = {
+    {"mali_mgm_mt6768.ko", 1},
+    {"mali_kbase_mt6768.ko", 1},
+    {"rfkill.ko", 1},
+    {"cfg80211.ko", 1},
+    {"btif_drv.ko", 1},
+    {"conn_md_drv.ko", 1},
+    {"connfem.ko", 1},
+    {"wmt_drv.ko", 1},
+    /* Defer until vendor.connsys.driver.ready=yes after wmt_loader probes EMI. */
+    {"wmt_chrdev_wifi.ko", 0},
+    {"bt_drv_connac1x.ko", 0},
+    {"wlan_drv_gen4m.ko", 0},
+};
+
+#define ZPD_MOD_COUNT ((int)(sizeof(zpd_modules) / sizeof(zpd_modules[0])))
 #define ZPD_EARLY_CFGFS "/dev/.zpd_cfgfs"
 #define ZPD_EARLY_GADGET "/dev/.zpd_cfgfs/usb_gadget/zpd_com"
 
@@ -95,7 +101,7 @@ static ssize_t copy_fd_to_path(int src_fd, const char *dst_path, mode_t mode) {
 static void open_zpd_modules(int mod_fds[ZPD_MOD_COUNT], int mod_loaded[ZPD_MOD_COUNT]) {
     for (int i = 0; i < ZPD_MOD_COUNT; i++) {
         char mpath[256];
-        snprintf(mpath, sizeof(mpath), "/zpd_modules/%s", zpd_module_order[i]);
+        snprintf(mpath, sizeof(mpath), "/zpd_modules/%s", zpd_modules[i].name);
         mod_fds[i] = open(mpath, O_RDONLY);
         mod_loaded[i] = 0;
     }
@@ -114,29 +120,29 @@ static void load_zpd_modules(int mod_fds[ZPD_MOD_COUNT], int mod_loaded[ZPD_MOD_
                              const char *phase) {
     int present = 0;
     for (int i = 0; i < ZPD_MOD_COUNT; i++) {
-        if (mod_fds[i] >= 0) present++;
+        if (zpd_modules[i].load_early && mod_fds[i] >= 0) present++;
     }
     if (present == 0) return;
 
     for (int i = 0; i < ZPD_MOD_COUNT; i++) {
         char note[320];
-        if (mod_fds[i] < 0 || mod_loaded[i]) continue;
+        if (!zpd_modules[i].load_early || mod_fds[i] < 0 || mod_loaded[i]) continue;
         lseek(mod_fds[i], 0, SEEK_SET);
         long rc = syscall(__NR_finit_module, mod_fds[i], "", 0);
         if (rc == 0) {
             mod_loaded[i] = 1;
             snprintf(note, sizeof(note), "<6>[ZPD1203-6.6] mod (%s): loaded %s\n",
-                     phase, zpd_module_order[i]);
+                     phase, zpd_modules[i].name);
             klog_note(note);
         } else if (errno == EEXIST) {
             mod_loaded[i] = 1;
             snprintf(note, sizeof(note), "<6>[ZPD1203-6.6] mod (%s): %s already loaded\n",
-                     phase, zpd_module_order[i]);
+                     phase, zpd_modules[i].name);
             klog_note(note);
         } else {
             snprintf(note, sizeof(note),
                      "<4>[ZPD1203-6.6] mod (%s): finit_module %s failed errno=%d (%s)\n",
-                     phase, zpd_module_order[i], errno, strerror(errno));
+                     phase, zpd_modules[i].name, errno, strerror(errno));
             klog_note(note);
         }
     }
@@ -150,16 +156,16 @@ static void stage_vendor_module_overrides(int mod_fds[ZPD_MOD_COUNT]) {
         char note[384];
         if (mod_fds[i] < 0) continue;
 
-        snprintf(vpath, sizeof(vpath), "/vendor/lib/modules/%s", zpd_module_order[i]);
+        snprintf(vpath, sizeof(vpath), "/vendor/lib/modules/%s", zpd_modules[i].name);
         if (access(vpath, F_OK) != 0) continue;
 
-        snprintf(dpath, sizeof(dpath), "/dev/.zpd_modules/%s", zpd_module_order[i]);
+        snprintf(dpath, sizeof(dpath), "/dev/.zpd_modules/%s", zpd_modules[i].name);
         ssize_t nbytes = copy_fd_to_path(mod_fds[i], dpath, 0644);
         if (nbytes > 0) {
             if (mount(dpath, vpath, "none", MS_BIND, NULL) == 0) {
                 snprintf(note, sizeof(note),
                          "<6>[ZPD1203-6.6] a12-wrap: bind-mounted 6.6 %s over %s (%zd B)\n",
-                         zpd_module_order[i], vpath, nbytes);
+                         zpd_modules[i].name, vpath, nbytes);
                 klog_note(note);
             } else {
                 snprintf(note, sizeof(note),

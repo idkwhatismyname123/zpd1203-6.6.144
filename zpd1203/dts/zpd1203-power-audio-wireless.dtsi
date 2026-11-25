@@ -99,6 +99,7 @@
 
 &mtk_gauge {
 	charger = <&sgm41510>;
+	mediatek,kernel-fuel-gauge;
 	status = "okay";
 };
 

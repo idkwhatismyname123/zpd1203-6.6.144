@@ -1,7 +1,7 @@
 # ZPD1203 Linux 6.6 移植进度追踪 (PORTING_STATUS.md)
 
-- **当前阶段**：**已实机验证新版 `6.6.144-zpd1203-@idkwhatismyname123` + 无 `fbcon` 屏幕跑码（`fbcon=map:9`）成功进入 Android 桌面**：`uname -a` 为 `Linux localhost 6.6.144-zpd1203-@idkwhatismyname123 #6 SMP PREEMPT Wed Nov 25 14:20:37 AEST 2026 aarch64 Toybox`，`sys.boot_completed=1`、`getenforce=Permissive`、`vtconsole` 仅存 `vtcon0`（无 `vtcon1` `fbcon` 屏幕跑码）、11 枚 `.ko` 全加载。
-- **目标内核**：**`6.6.144-zpd1203-@idkwhatismyname123`**（零 `-g<sha>` / `+` / `-dirty` 后缀；`AOSP android15-6.6` `abae8068d6e7` + `Addster09` BSP `4779d25e29f7` + Moto GPU `2d3b928b88ce` + Moto Connsys 5 仓）
+- **当前阶段**：**已完成 Wi-Fi / 蓝牙（修复 `wmt_chrdev_wifi` / `bt_drv_connac1x` / `wlan_drv_gen4m` 预加载抢跑 EMI `0x0` 导致 N9 assert 的时序问题）与电池电量百分比（`mediatek,kernel-fuel-gauge` 启用内核态 MT6358 真实电量算法）修复及全量重编校验（`已编译通过 / 已静态验证`，尚未刷机）**；第 #6 轮（`6.6.144-zpd1203-@idkwhatismyname123` + `fbcon=map:9`）此前已实机进入桌面。待用户确认后经 `adb reboot bootloader` 刷入 `boot_a` 实机验证 Wi-Fi、蓝牙与电量显示。
+- **目标内核**：**`6.6.144-zpd1203-@idkwhatismyname123`**（零 `-g<sha>` / `+` / `-dirty` 后缀；`AOSP android15-6.6` `abae8068d6e7` + `Addster09` BSP `8f118e0bd30b` + Moto GPU `2d3b928b88ce` + Moto Connsys 5 仓）
 - **原厂基线**：ZYB Android 12 (`vendor_boot_a.img` 4.19.191 / VNDK 31，`super` 含 LineageOS 21 Android 14 GSI `system_a`)
 - **参考移植**：`idkwhatismyname123/zpd1203-5.10.240` (`test25` / `8a74a527`)
 
@@ -19,28 +19,28 @@
 | Phase 7 | 主配置固化、全自动化构建/校验/安全测试与恢复脚本 + 屏幕日志 (`fbcon`) & COM 口增强 | 已编译通过 / 已静态验证 | 补丁 `patches/phase7_defconfig/` + `patches/phase7_console_com/`；新增 `scripts/watch_com.ps1`；`full` + `minimal` 均 PASS |
 
 ## 实机测试说明
-> - **第 #6 轮（当前实机系统：`6.6.144-zpd1203-@idkwhatismyname123` + `fbcon=map:9`）**：经用户确认后将 [boot-full-6.6.img](file:///d:/P3066/out/full/boot-full-6.6.img)（`d1f0eabfd77cc7d73d6a0fb81fd00d62cdbe6b6200449dd88a29d4ab38491e12`）刷入 `boot_a` 并重启，65 秒内进入 Android 桌面并通过 ADB 校验为 **`已实机验证`**：
->   - `uname -a`: `Linux localhost 6.6.144-zpd1203-@idkwhatismyname123 #6 SMP PREEMPT Wed Nov 25 14:20:37 AEST 2026 aarch64 Toybox`
->   - `sys.boot_completed=1`、`getenforce=Permissive`、`/proc/cmdline` 含 `console=ttyS0,921600n1 fbcon=map:9 ...`、`/sys/class/vtconsole/` 仅存在 `vtcon0 ((S) dummy device)`（`fbcon` 未绑定，无屏幕跑码）
->   - `lsmod` 实测全部 11 枚模块（`wlan_drv_gen4m`、`bt_drv_connac1x`、`wmt_chrdev_wifi`、`wmt_drv`、`connfem`、`conn_md_drv`、`btif_drv`、`cfg80211`、`rfkill`、`mali_kbase_mt6768`、`mali_mgm_mt6768`）均已加载（`mali_kbase_mt6768` `Used by 12`）。
-> - **第 #5 轮（前版 `6.6.144-zpd1203-ga8f0da857734`）深入实机验证与历史日志**：`COM20` (`50.55s`) 转 `ADB + COM` (`0x0e8d:0x2006`, `58.06s`)、抓包 [logs_20261125_140716](file:///d:/P3066/out/logs_20261125_140716)、`GLES: ARM, Mali-G52 MC2, OpenGL ES 3.2 v1.r32p1-01eac0`、Himax `HX83102J` 触屏/手写笔 (`event1`/`event2`)、`mt6768-mt6358` 音频 + `aw87xxx@59/5A`、`lcd-backlight`、`sgm41510` 充电在线（`status: Charging`, `1.21 A`）；待排查优化项仍为电池电量显示 `capacity=-1`、`disp_ovl0` 延迟探测导致的 `fb0_bridge` 显示回退，以及 Wi-Fi/BT/音频真实体验测试。
+> - **第 #6 轮（当前平板运行基线：`6.6.144-zpd1203-@idkwhatismyname123` + `fbcon=map:9`）**：已通过 Fastboot 刷入 `boot_a` 并**`已实机验证`**进入 Android 桌面（65s 内，`uname -a` 为 `Linux localhost 6.6.144-zpd1203-@idkwhatismyname123 #6 SMP PREEMPT Wed Nov 25 14:20:37 AEST 2026 aarch64 Toybox`、`sys.boot_completed=1`、`getenforce=Permissive`、`/sys/class/vtconsole/` 仅存 `vtcon0`，11 枚 `.ko` 全加载、`mali_kbase_mt6768` `Used by 12`）。该轮抓包同时定位并解释了三项待修缺陷：
+>   1. **Wi-Fi**：`a12_init_wrapper` 于 `t=2.3s` 过早加载 `wlan_drv_gen4m.ko`，早于 `t=18.7s` `wmt_loader` 初始化 `gConEmiPhyBase`，致使 `emi_mem_init` 取得 `pa=0x0/size=0x0`、`Alloc emi mem failed`，进而触发 `assert@../patch/sys_patch_mcu.c_751` 与 WMT 整片复位。
+>   2. **蓝牙**：上述 WLAN 触发 WMT 复位与 `block tx flag is set` 导致 `/dev/stpbt` 打开返回 `-EIO`（`OPID(3) type(0) fail`）。
+>   3. **电量显示（`capacity=-1`）**：原厂 Android 12 `fuelgauged` 与 6.6 `mtk-battery-manager` Netlink 协议不兼容，导致停在 daemon 模式、`init_flag=0`。
+> - **待刷机验证（最新构建，见下表）**：已在 [a12_init_wrapper.c](file:///d:/P3066/zpd1203/tools/a12_init_wrapper.c) 推迟 `wmt_chrdev_wifi`/`bt_drv_connac1x`/`wlan_drv_gen4m` 加载至 vendor `vendor.connsys.driver.ready=yes`（保留 `/vendor/lib/modules` `MS_BIND` 替换），并在 `kernel_device_modules-6.6` (`8f118e0bd30b`) 启用 `mediatek,kernel-fuel-gauge`（内核真实 MT6358 电量算法）。**新构建尚未刷机，标记为已编译通过 / 已静态验证**。
 
-## 构建历史记录（无 `fbcon` 屏幕跑码版 `full` `6.6.144-zpd1203-@idkwhatismyname123`）
+## 构建历史记录（最新 `full` `6.6.144-zpd1203-@idkwhatismyname123`，含 Wi-Fi/BT/电量修复 + `fbcon=map:9`）
 
-> 全部 8 个 WSL2 Git 仓库均已清洁提交（`clean=True`）；以下全量产物大小与 SHA256 均取自本次实机验证版本 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) 与 `scripts/verify_build.sh --mode full` 实测输出；最小诊断模式配置已同步更新至 `@idkwhatismyname123`（尚未重编，仍保留 `g79934f29bfe5` 构建产物）。
+> 全部 8 个 WSL2 Git 仓库均已清洁提交（`clean=True`）；以下全量产物大小与 SHA256 均取自本次重编后 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) 与 `scripts/verify_build.sh --mode full` 实测输出；最小诊断模式配置已同步更新至 `@idkwhatismyname123`（尚未重编，仍保留 `g79934f29bfe5` 构建产物）。
 
 ### 1. 全量模式 (`mode=full`, `zpd1203_defconfig`, `6.6.144-zpd1203-@idkwhatismyname123`)
 
 | 目标产物 | 大小 (Bytes) | SHA256 | 验证状态 |
 |---|---|---|---|
-| `out/full/Image` | 42,764,800 | `195830a4dc5bcbd4f6b058c516e5087600caca418a0b647936473859219da229` | 已实机验证 (`6.6.144-zpd1203-@idkwhatismyname123`) |
-| `out/full/Image.gz` | 15,798,010 | `a8b4098312f579f922b482f1f0691910c3d6f784ab2f840a71d45ced10e99d68` | 已实机验证 (Banner 含 `6.6.144-zpd1203-@idkwhatismyname123`, 无 `-dirty`) |
-| `out/full/mt6768-zpd1203.dtb` | 172,886 | `576208433d90957483f256835b32b22262d7f2eb5c5da23aa257d62b55633f57` | 已实机验证 (`fdtoverlay` `dtbo_a_0.dtb` -> 203,097 B, `i2c2-4 ch-offset-i2c=0x100`) |
-| `out/full/dtb-full-6.6.dtimg` | 172,950 | `f815c2ffe745f197ee7b0c025a6e677eda56360a7a1dca36b79cb705b46402a6` | 已实机验证 (DT Table `0xd7b7ab1e`) |
-| `out/full/initramfs-full-6.6.cpio.xz` | 12,357,860 | `ad6f2be870d33de410c2a29abbe4ad2594b965f731d457b1ebc81cdfe016b8ab` | 已实机验证 (`xz --check=crc32`, 含 11 枚 `.ko` + `a12_init_wrapper`) |
-| `out/full/boot-full-6.6.raw.img` | 28,334,080 | `31b185332d18bdbfd6abb8710422405a58c6e4763fcf6fcd152795de8d93f82a` | 已实机验证 (Boot v2, `< 32 MiB`, `fbcon=map:9 loglevel=4 panic=8 androidboot.selinux=permissive`) |
-| `out/full/boot-full-6.6.img` | 33,554,432 | `d1f0eabfd77cc7d73d6a0fb81fd00d62cdbe6b6200449dd88a29d4ab38491e12` | 已实机验证 (已刷入 `boot_a` 并进入桌面, `avbtool` + `verify_build.sh` PASS) |
-| `out/full/modules/*.ko` (11 枚 Stripped) | 10,432,144 (总和) | 见 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) | 已实机验证 (`vermagic=6.6.144-zpd1203-@idkwhatismyname123`, `lsmod` 11/11 已加载) |
+| `out/full/Image` | 42,764,800 | `e7ea2d2b4d46d6e27aab41d295e7064303ed2b0a0c0ec9f3bbf6d70b1d6b09f7` | 已编译通过 (`6.6.144-zpd1203-@idkwhatismyname123`, 含内核电量算法修复) |
+| `out/full/Image.gz` | 15,799,522 | `30e60d77e853e1fea053cc3b26b0293ef4aa67a0cc270f32500c803238e300ba` | 已编译通过 (Banner 含 `6.6.144-zpd1203-@idkwhatismyname123`, 无 `-dirty`) |
+| `out/full/mt6768-zpd1203.dtb` | 172,925 | `882c53f7de489df845f83c3bd482be058ee5e369c800c07e5c7b0eac95aadf2e` | 已静态验证 (`fdtoverlay` `dtbo_a_0.dtb` -> 203,136 B, 含 `mediatek,kernel-fuel-gauge`) |
+| `out/full/dtb-full-6.6.dtimg` | 172,989 | `f35dffb2eb982b89e6169fe1482bb6afa5a250f0f82bb0081649187073985126` | 已静态验证 (DT Table `0xd7b7ab1e`) |
+| `out/full/initramfs-full-6.6.cpio.xz` | 12,359,368 | `46707071b04761a7f62e6ea61e69a78d75503f43a503457455cd688a1d40c365` | 已静态验证 (`xz --check=crc32`, 含延迟无线加载版 `a12_init_wrapper` + 11 `.ko`) |
+| `out/full/boot-full-6.6.raw.img` | 28,336,128 | `5ca3f842dc282c2f1d42281a087d74b501b76d0a588c05fce4e4068850b24630` | 已静态验证 (Boot v2, `< 32 MiB`, `fbcon=map:9 loglevel=4 panic=8 androidboot.selinux=permissive`) |
+| `out/full/boot-full-6.6.img` | 33,554,432 | `4ff3be3bdf82e4125aae862a7c2c58324697053e86a73bf549cad8c5651bda58` | 已静态验证 (`avbtool` + `unpack_bootimg` + `verify_build.sh` PASS) |
+| `out/full/modules/*.ko` (11 枚 Stripped) | 10,432,144 (总和) | 见 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) | 已静态验证 (`vermagic=6.6.144-zpd1203-@idkwhatismyname123`, CRC `0x2933d34f`, 0 undef) |
 
 #### 全量模式 11 枚内核模块明细 (`vermagic=6.6.144-zpd1203-@idkwhatismyname123`, CRC `0x2933d34f`)
 
@@ -56,7 +56,7 @@
 | `wmt_drv.ko` | 1,698,976 | 6,496,400 | `4555b252...` | `e143ba45...` | 0 undef (PASS) |
 | `wmt_chrdev_wifi.ko` | 52,264 | 318,616 | `182c2b8e...` | `3b186e98...` | 0 undef (PASS) |
 | `bt_drv_connac1x.ko` | 96,208 | 658,800 | `774137ac...` | `79b1d1cf...` | 0 undef (PASS) |
-| `wlan_drv_gen4m.ko` | 5,344,288 | 49,592,976 | `427bdb02...` | `1f650d07...` | 0 undef (PASS) |
+| `wlan_drv_gen4m.ko` | 5,344,288 | 49,592,976 | `c066e806...` | `79e30427...` | 0 undef (PASS) |
 
 ### 2. 最小诊断模式 (`mode=minimal`, `zpd1203_minimal_defconfig`, 前一基线 `6.6.144-zpd1203-g79934f29bfe5`)
 
