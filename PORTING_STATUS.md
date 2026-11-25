@@ -1,6 +1,6 @@
 # ZPD1203 Linux 6.6 移植进度追踪 (PORTING_STATUS.md)
 
-- **当前阶段**：**已完成 Wi-Fi / 蓝牙（修复 `wmt_chrdev_wifi` / `bt_drv_connac1x` / `wlan_drv_gen4m` 预加载抢跑 EMI `0x0` 导致 N9 assert 的时序问题）与电池电量百分比（`mediatek,kernel-fuel-gauge` 启用内核态 MT6358 真实电量算法）修复及全量重编校验（`已编译通过 / 已静态验证`，尚未刷机）**；第 #6 轮（`6.6.144-zpd1203-@idkwhatismyname123` + `fbcon=map:9`）此前已实机进入桌面。待用户确认后经 `adb reboot bootloader` 刷入 `boot_a` 实机验证 Wi-Fi、蓝牙与电量显示。
+- **当前阶段**：**已实机验证第 #7 轮（`6.6.144-zpd1203-@idkwhatismyname123` + `fbcon=map:9` + Wi-Fi/BT 时序修复 + 内核态 MT6358 电量算法）**：成功进入桌面（`sys.boot_completed=1`）、**Wi-Fi 已实机上线并扫到 2.4G/5G AP**、**蓝牙已开启 `state: ON`（零 crash）**、**电池百分比已实机上报 `89%`（`Charge counter: 2621940`, `algo:1`）**，加上此前已实机验证的 `Mali-G52 MC2` GLES 3.2、Himax 触屏/手写笔、音频、`sgm41510` USB 充电及 `ADB + COM`。
 - **目标内核**：**`6.6.144-zpd1203-@idkwhatismyname123`**（零 `-g<sha>` / `+` / `-dirty` 后缀；`AOSP android15-6.6` `abae8068d6e7` + `Addster09` BSP `8f118e0bd30b` + Moto GPU `2d3b928b88ce` + Moto Connsys 5 仓）
 - **原厂基线**：ZYB Android 12 (`vendor_boot_a.img` 4.19.191 / VNDK 31，`super` 含 LineageOS 21 Android 14 GSI `system_a`)
 - **参考移植**：`idkwhatismyname123/zpd1203-5.10.240` (`test25` / `8a74a527`)
@@ -19,28 +19,29 @@
 | Phase 7 | 主配置固化、全自动化构建/校验/安全测试与恢复脚本 + 屏幕日志 (`fbcon`) & COM 口增强 | 已编译通过 / 已静态验证 | 补丁 `patches/phase7_defconfig/` + `patches/phase7_console_com/`；新增 `scripts/watch_com.ps1`；`full` + `minimal` 均 PASS |
 
 ## 实机测试说明
-> - **第 #6 轮（当前平板运行基线：`6.6.144-zpd1203-@idkwhatismyname123` + `fbcon=map:9`）**：已通过 Fastboot 刷入 `boot_a` 并**`已实机验证`**进入 Android 桌面（65s 内，`uname -a` 为 `Linux localhost 6.6.144-zpd1203-@idkwhatismyname123 #6 SMP PREEMPT Wed Nov 25 14:20:37 AEST 2026 aarch64 Toybox`、`sys.boot_completed=1`、`getenforce=Permissive`、`/sys/class/vtconsole/` 仅存 `vtcon0`，11 枚 `.ko` 全加载、`mali_kbase_mt6768` `Used by 12`）。该轮抓包同时定位并解释了三项待修缺陷：
->   1. **Wi-Fi**：`a12_init_wrapper` 于 `t=2.3s` 过早加载 `wlan_drv_gen4m.ko`，早于 `t=18.7s` `wmt_loader` 初始化 `gConEmiPhyBase`，致使 `emi_mem_init` 取得 `pa=0x0/size=0x0`、`Alloc emi mem failed`，进而触发 `assert@../patch/sys_patch_mcu.c_751` 与 WMT 整片复位。
->   2. **蓝牙**：上述 WLAN 触发 WMT 复位与 `block tx flag is set` 导致 `/dev/stpbt` 打开返回 `-EIO`（`OPID(3) type(0) fail`）。
->   3. **电量显示（`capacity=-1`）**：原厂 Android 12 `fuelgauged` 与 6.6 `mtk-battery-manager` Netlink 协议不兼容，导致停在 daemon 模式、`init_flag=0`。
-> - **待刷机验证（最新构建，见下表）**：已在 [a12_init_wrapper.c](file:///d:/P3066/zpd1203/tools/a12_init_wrapper.c) 推迟 `wmt_chrdev_wifi`/`bt_drv_connac1x`/`wlan_drv_gen4m` 加载至 vendor `vendor.connsys.driver.ready=yes`（保留 `/vendor/lib/modules` `MS_BIND` 替换），并在 `kernel_device_modules-6.6` (`8f118e0bd30b`) 启用 `mediatek,kernel-fuel-gauge`（内核真实 MT6358 电量算法）。**新构建尚未刷机，标记为已编译通过 / 已静态验证**。
+> - **第 #7 轮（当前平板实机运行版本：`6.6.144-zpd1203-@idkwhatismyname123` `#7`，`boot_a`）**：已通过 Fastboot 刷入 [boot-full-6.6.img](file:///d:/P3066/out/full/boot-full-6.6.img)（`4ff3be3bdf82e4125aae862a7c2c58324697053e86a73bf549cad8c5651bda58`）并**`已实机验证`**：
+>   - **系统与模块**：`uname -a` 为 `Linux localhost 6.6.144-zpd1203-@idkwhatismyname123 #7 SMP PREEMPT Wed Nov 25 15:51:49 AEST 2026 aarch64 Toybox`、`sys.boot_completed=1`、`lsmod` 全部 11 枚 `.ko` 加载（`bt_drv_connac1x` `Used by 1`、`mali_kbase_mt6768` `Used by 15`）。
+>   - **Wi-Fi**：`emi_mem_init` 获取 `pa=0xbf000000 size=0x400000`；开启 Wi-Fi 后 `wlanProbe` / `FW_START EVT success!!` / `WMT turn on WIFI success!`，`wlan0`（`<wlan-mac>`）`<UP>`，`cmd wifi list-scan-results` 实测扫出 多个 2.4 GHz 与 5 GHz 周边热点；关联 Wi-Fi 上网尚待实际连接测试。
+>   - **蓝牙**：`OPID(3) type(0) ok`、`WMT turn on BT OK!`、`STP is ready!`，`dumpsys bluetooth_manager` 显示 `enabled: true`、`state: ON`、`address: <bt-mac>`、`Bluetooth crashed 0 times`，A2DP/AVRCP/HFP/HID Profile 已就绪；实际配对音频传输尚待实机测试。
+>   - **电池电量百分比**：`fgauge` 运行 `algo:1`（`soc:89 uisoc:89 vbat:4313 baton:695`），`dumpsys battery` 与 `/sys/class/power_supply/battery/uevent` 均显示 `level: 89` / `POWER_SUPPLY_CAPACITY=89`、`Charge counter: 2621940`、`CHARGE_FULL=2946000`、`TIME_TO_FULL_NOW=98865`、`status: Charging`。
+> - **第 #5 / #6 轮既有实机确认项**：`COM20` + `ADB+COM`（`0x0e8d:0x2006`）[logs_20261125_140716](file:///d:/P3066/out/logs_20261125_140716)、`Mali-G52 MC2` OpenGL ES 3.2 `v1.r32p1-01eac0`、Himax `HX83102J` 触屏/手写笔、`mt6768-mt6358` + `aw87xxx@59/5A`、`lcd-backlight`、`sgm41510` USB 充电在线、`fbcon=map:9` 永久禁用屏幕跑码（`vtconsole` 仅存 `vtcon0`）。待进一步打磨项：`disp_ovl0@1400b000` 缺 phandle `262144` 导致的原生 `mediatek-drm` 回退（当前走 `fb0_bridge`），以及 Wi-Fi 联网、蓝牙配对、扬声器外放的端到端实机使用测试。
 
-## 构建历史记录（最新 `full` `6.6.144-zpd1203-@idkwhatismyname123`，含 Wi-Fi/BT/电量修复 + `fbcon=map:9`）
+## 构建历史记录（当前实机版本 `full` `6.6.144-zpd1203-@idkwhatismyname123`，含 Wi-Fi/BT/电量修复 + `fbcon=map:9`）
 
-> 全部 8 个 WSL2 Git 仓库均已清洁提交（`clean=True`）；以下全量产物大小与 SHA256 均取自本次重编后 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) 与 `scripts/verify_build.sh --mode full` 实测输出；最小诊断模式配置已同步更新至 `@idkwhatismyname123`（尚未重编，仍保留 `g79934f29bfe5` 构建产物）。
+> 全部 8 个 WSL2 Git 仓库均已清洁提交（`clean=True`）；以下全量产物大小与 SHA256 均取自本次实机验证版本 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) 与 `scripts/verify_build.sh --mode full` 实测输出；最小诊断模式配置已同步更新至 `@idkwhatismyname123`（尚未重编，仍保留 `g79934f29bfe5` 构建产物）。
 
 ### 1. 全量模式 (`mode=full`, `zpd1203_defconfig`, `6.6.144-zpd1203-@idkwhatismyname123`)
 
 | 目标产物 | 大小 (Bytes) | SHA256 | 验证状态 |
 |---|---|---|---|
-| `out/full/Image` | 42,764,800 | `e7ea2d2b4d46d6e27aab41d295e7064303ed2b0a0c0ec9f3bbf6d70b1d6b09f7` | 已编译通过 (`6.6.144-zpd1203-@idkwhatismyname123`, 含内核电量算法修复) |
-| `out/full/Image.gz` | 15,799,522 | `30e60d77e853e1fea053cc3b26b0293ef4aa67a0cc270f32500c803238e300ba` | 已编译通过 (Banner 含 `6.6.144-zpd1203-@idkwhatismyname123`, 无 `-dirty`) |
-| `out/full/mt6768-zpd1203.dtb` | 172,925 | `882c53f7de489df845f83c3bd482be058ee5e369c800c07e5c7b0eac95aadf2e` | 已静态验证 (`fdtoverlay` `dtbo_a_0.dtb` -> 203,136 B, 含 `mediatek,kernel-fuel-gauge`) |
-| `out/full/dtb-full-6.6.dtimg` | 172,989 | `f35dffb2eb982b89e6169fe1482bb6afa5a250f0f82bb0081649187073985126` | 已静态验证 (DT Table `0xd7b7ab1e`) |
-| `out/full/initramfs-full-6.6.cpio.xz` | 12,359,368 | `46707071b04761a7f62e6ea61e69a78d75503f43a503457455cd688a1d40c365` | 已静态验证 (`xz --check=crc32`, 含延迟无线加载版 `a12_init_wrapper` + 11 `.ko`) |
-| `out/full/boot-full-6.6.raw.img` | 28,336,128 | `5ca3f842dc282c2f1d42281a087d74b501b76d0a588c05fce4e4068850b24630` | 已静态验证 (Boot v2, `< 32 MiB`, `fbcon=map:9 loglevel=4 panic=8 androidboot.selinux=permissive`) |
-| `out/full/boot-full-6.6.img` | 33,554,432 | `4ff3be3bdf82e4125aae862a7c2c58324697053e86a73bf549cad8c5651bda58` | 已静态验证 (`avbtool` + `unpack_bootimg` + `verify_build.sh` PASS) |
-| `out/full/modules/*.ko` (11 枚 Stripped) | 10,432,144 (总和) | 见 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) | 已静态验证 (`vermagic=6.6.144-zpd1203-@idkwhatismyname123`, CRC `0x2933d34f`, 0 undef) |
+| `out/full/Image` | 42,764,800 | `e7ea2d2b4d46d6e27aab41d295e7064303ed2b0a0c0ec9f3bbf6d70b1d6b09f7` | 已实机验证 (`6.6.144-zpd1203-@idkwhatismyname123`, 内核态电量 `89%`) |
+| `out/full/Image.gz` | 15,799,522 | `30e60d77e853e1fea053cc3b26b0293ef4aa67a0cc270f32500c803238e300ba` | 已实机验证 (Banner 含 `6.6.144-zpd1203-@idkwhatismyname123`, 无 `-dirty`) |
+| `out/full/mt6768-zpd1203.dtb` | 172,925 | `882c53f7de489df845f83c3bd482be058ee5e369c800c07e5c7b0eac95aadf2e` | 已实机验证 (`fdtoverlay` `dtbo_a_0.dtb` -> 203,136 B, 含 `mediatek,kernel-fuel-gauge`) |
+| `out/full/dtb-full-6.6.dtimg` | 172,989 | `f35dffb2eb982b89e6169fe1482bb6afa5a250f0f82bb0081649187073985126` | 已实机验证 (DT Table `0xd7b7ab1e`) |
+| `out/full/initramfs-full-6.6.cpio.xz` | 12,359,368 | `46707071b04761a7f62e6ea61e69a78d75503f43a503457455cd688a1d40c365` | 已实机验证 (`xz --check=crc32`, `a12_init_wrapper` 延迟无线加载 + 11 `.ko`) |
+| `out/full/boot-full-6.6.raw.img` | 28,336,128 | `5ca3f842dc282c2f1d42281a087d74b501b76d0a588c05fce4e4068850b24630` | 已实机验证 (Boot v2, `< 32 MiB`, `fbcon=map:9 loglevel=4 panic=8 androidboot.selinux=permissive`) |
+| `out/full/boot-full-6.6.img` | 33,554,432 | `4ff3be3bdf82e4125aae862a7c2c58324697053e86a73bf549cad8c5651bda58` | 已实机验证 (已刷 `boot_a`, 桌面 + Wi-Fi + BT + 电量全通, `verify_build.sh` PASS) |
+| `out/full/modules/*.ko` (11 枚 Stripped) | 10,432,144 (总和) | 见 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) | 已实机验证 (`vermagic=6.6.144-zpd1203-@idkwhatismyname123`, `lsmod` 11/11 已加载) |
 
 #### 全量模式 11 枚内核模块明细 (`vermagic=6.6.144-zpd1203-@idkwhatismyname123`, CRC `0x2933d34f`)
 
