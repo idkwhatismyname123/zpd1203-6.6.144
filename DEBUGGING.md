@@ -54,3 +54,14 @@
   1. 在 [musb_core.c](/home/asus/zpd1203-6.6/kernel/kernel_device_modules-6.6/drivers/misc/mediatek/usb/usb20/musb_core.c) 的 `Charger_Detect_Init()`、`Charger_Detect_Release()`、`usb_prepare_clock()`、`usb_enable_clock()` 加入 `glue` / `glue->phy` 空指针保护。
   2. 在 `bq2589x_charger.c` 将 `INIT_DELAYED_WORK` 前移至中断注册前、初始 `read_byte_work` 延后至 `1500 ms`，并在初次探测为 `SDP`/`CDP`/`UNKNOWN` 时补齐 `Charger_Detect_Release()`。
   3. 为 `full` 模式开启 `CONFIG_FB_SIMPLE=y` 与 `&chosen/framebuffer@7d350000` 早期屏幕日志，在 `mtk_drm_bind()` 接入 `drm_aperture_remove_framebuffers(&mtk_drm_driver)`，并在命令行加入 `panic=8`。
+
+### 记录 #2：2026-11-25 第二版 `boot-full-6.6.img` (`92c716870252` / `3086c4b0af53`) 实机屏幕日志验证与 `dramc` 崩溃定位
+
+- **实机现象与截图证据**：
+  1. 新开启的早期 `simplefb` + `fbcon=rotate:3,font:TER16x32` + `panic=8` 在平板屏幕横屏高清输出内核滚动日志并清晰驻留 8 秒，证明前期 `bq2589x`/`musb_core` 修复生效：内核已跳过 `0.590s` 崩溃并一路推进通过全部 `device_initcall`（level 6）直达 **`t=5.85s`**（`late_initcall` / level 7）。
+  2. 实机 `com_full_fix1_20261125_130707.log` 记录到约每 29 秒重返 `PreLoader`（正常复位间隔加 `panic=8`）。
+- **崩溃根因（实机屏幕栈轨迹）**：
+  `mtk_sleep_init -> mtk_spm_init -> spm_module_init -> spm_get_spmfw_idx -> mtk_dramc_get_ddr_type+0x18/0x28` 解引用空指针导致 Kernel Panic。
+  - 根因：`drivers/memory/mediatek/dramc.c` 的 `dramc_probe()` 在第 221 行先设置了全局 `dramc_pdev = pdev;`，随后在解析 DT `dram_type` 失败时直接 `return -EINVAL` 退出，此时 `platform_set_drvdata(pdev, dramc_dev_ptr)` 尚未执行；当 `spm_get_spmfw_idx()` 调用 `mtk_dramc_get_ddr_type()` 时，`dramc_pdev` 非空但 `platform_get_drvdata(dramc_pdev)` 返回 `NULL`，导致访问 `dramc_dev_ptr->dram_type` 崩溃。
+- **修复措施（已合入 `0d43534325ef` 并重新构建验证 `full`）**：
+  - 将 `dramc_pdev = pdev;` 移至 `platform_set_drvdata(pdev, dramc_dev_ptr);` 之后发布，并为 `dramc.c` 内全部 `platform_get_drvdata(dramc_pdev)` 调用点（`mr_show`、`mr4_show`、`mtk_dramc_get_steps_freq`、`mtk_dramc_get_data_rate`、`mtk_dramc_get_mr4`、`mtk_dramc_get_ddr_type`）补充 `NULL` 防护；已交叉核查 `emicen.c`/`emiisu.c`/`emimpu.c` 均已在探测成功后再赋 `*_pdev` 且 `spm_get_spmfw_idx()` 在无 DRAMC 时安全返回 `0`。

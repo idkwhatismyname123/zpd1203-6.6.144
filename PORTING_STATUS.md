@@ -1,7 +1,7 @@
 # ZPD1203 Linux 6.6 移植进度追踪 (PORTING_STATUS.md)
 
-- **当前阶段**：**已完成首次实机崩溃取证修复与全量重编校验**（`full` 新版 `6.6.144-zpd1203-g92c716870252` 达 **`已编译通过` / `已静态验证`**）；待用户确认再次刷入 `boot_a` 进行实机验证。
-- **目标内核**：**`6.6.144-zpd1203-g92c716870252`**（零 `-dirty` 后缀；`AOSP android15-6.6` `92c716870252` + `Addster09` BSP `3086c4b0af53` + Moto GPU `2d3b928b88ce` + Moto Connsys 5 仓）
+- **当前阶段**：**已完成第 #2 轮实机 `fbcon` 屏幕栈取证修复与全量重编校验**（`full` 新版 `6.6.144-zpd1203-g92c716870252` + `device_modules` `0d43534325ef` 达 **`已编译通过` / `已静态验证`**）；待用户将平板进入 Fastboot 并确认后刷入 `boot_a` 继续实机测试。
+- **目标内核**：**`6.6.144-zpd1203-g92c716870252`**（零 `-dirty` 后缀；`AOSP android15-6.6` `92c716870252` + `Addster09` BSP `0d43534325ef` + Moto GPU `2d3b928b88ce` + Moto Connsys 5 仓）
 - **原厂基线**：ZYB Android 12 (`vendor_boot_a.img` 4.19.191 / VNDK 31，`super` 含 LineageOS 21 Android 14 GSI `system_a`)
 - **参考移植**：`idkwhatismyname123/zpd1203-5.10.240` (`test25` / `8a74a527`)
 
@@ -19,23 +19,23 @@
 | Phase 7 | 主配置固化、全自动化构建/校验/安全测试与恢复脚本 + 屏幕日志 (`fbcon`) & COM 口增强 | 已编译通过 / 已静态验证 | 补丁 `patches/phase7_defconfig/` + `patches/phase7_console_com/`；新增 `scripts/watch_com.ps1`；`full` + `minimal` 均 PASS |
 
 ## 实机测试说明
-> 已于 2026-11-25 对前一版 `boot-full-6.6.img` (`g79934f29bfe5`) 完成首次实机 `boot_a` 试启，从实机 `/sys/fs/pstore` 证实 Linux 6.6.144 成功推进至 `t=0.590s`（具体崩溃栈与修复详见 [DEBUGGING.md](file:///d:/P3066/DEBUGGING.md)）；目前平板已恢复原厂 `boot_a.img`，新版 `6.6.144-zpd1203-g92c716870252` 尚未再次实机启动，各子系统仍严格维持 **`已编译通过`** / **`已静态验证`** / **`尚未验证`** / **`已知故障`** 标注。
+> 已完成两轮实机测试取证：第 #1 轮通过 `pstore` 证实推进至 `t=0.590s` 并修复 `bq2589x`/`usb_prepare_clock`；第 #2 轮实机 `fbcon` + `panic=8` 屏幕栈证实推进至 `t=5.85s` (`late_initcall`) 并定位 `dramc.c` 空指针（详见 [DEBUGGING.md](file:///d:/P3066/DEBUGGING.md)）。新版 `dramc.c` 修复版尚未再次实机启动，各硬件子系统严格维持 **`已编译通过`** / **`已静态验证`** / **`尚未验证`** / **`已知故障`** 标注。
 
-## 构建历史记录（`pstore` 崩溃修复 + `full` 早期屏幕日志版 `6.6.144-zpd1203-g92c716870252`）
+## 构建历史记录（`dramc` 崩溃修复 + 早期屏幕日志终版 `6.6.144-zpd1203-g92c716870252`）
 
-> 全部 8 个 WSL2 Git 仓库均已清洁提交（`clean=True`）；以下全量产物大小与 SHA256 均取自本次重构后 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) 与 `scripts/verify_build.sh --mode full` 实测输出；最小诊断模式尚停留在 `g79934f29bfe5` 构建。
+> 全部 8 个 WSL2 Git 仓库均已清洁提交（`clean=True`）；以下全量产物大小与 SHA256 均取自本次重编后 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) 与 `scripts/verify_build.sh --mode full` 实测输出；最小诊断模式尚停留在 `g79934f29bfe5` 构建。
 
 ### 1. 全量模式 (`mode=full`, `zpd1203_defconfig`, `6.6.144-zpd1203-g92c716870252`)
 
 | 目标产物 | 大小 (Bytes) | SHA256 | 验证状态 |
 |---|---|---|---|
-| `out/full/Image` | 39,553,536 | `cd7c479fcee8fc7019ce72decc043f364340d3534ed5f885fa58fb0c1fa1b65e` | 已编译通过 (`ARM\x64` 有效) |
-| `out/full/Image.gz` | 15,794,204 | `533c91c598734750688c17517996f5cc092e2d2df42bffea83ccd566284d0a36` | 已编译通过 (Banner 无 `-dirty`, 含 `FB_SIMPLE` + `fbcon` + `U_SERIAL_CONSOLE`) |
+| `out/full/Image` | 39,553,536 | `5c619be57ba0836598ca0595704781a98f215336f88f323ca401687134e389d5` | 已编译通过 (`ARM\x64` 有效) |
+| `out/full/Image.gz` | 15,795,420 | `e4b916d4a675dac29a66f530a5f2e8d61a07173cf4a465c43f5c48be6b9b46a6` | 已编译通过 (Banner 无 `-dirty`, 含 `FB_SIMPLE` + `fbcon` + `U_SERIAL_CONSOLE`) |
 | `out/full/mt6768-zpd1203.dtb` | 172,706 | `f2f36e351558e61e8b5a73ee56eed923b530f00ff3fae01e20509f4992b7545e` | 已静态验证 (`fdtoverlay` `dtbo_a_0.dtb` -> 202,917 B, `chosen/framebuffer0=okay`) |
 | `out/full/dtb-full-6.6.dtimg` | 172,770 | `290fc69e289664f3cb800ccec3237c2bf84d0882272978e9640956a740848fca` | 已静态验证 (DT Table `0xd7b7ab1e`) |
-| `out/full/initramfs-full-6.6.cpio.xz` | 12,362,484 | `b143b1415d1a0e970503d28126a28d81aaaf2de4ebb0548fa5ddd547324dfa54` | 已静态验证 (`xz --check=crc32`, 含 11 枚 `.ko` + 早期/守护 COM 包装器) |
-| `out/full/boot-full-6.6.raw.img` | 28,336,128 | `948b4450db4fc622bfd77480862cc70d4235ed189d0c8aae8a6c12f7e59d505b` | 已静态验证 (Boot v2, `< 32 MiB`, 含 `console=tty0 fbcon=rotate:3,font:TER16x32 panic=8`) |
-| `out/full/boot-full-6.6.img` | 33,554,432 | `330bc03a9250f4980d51d2ffa14e7c8b6668b92366c2ff9bf0421a2c385ad179` | 已静态验证 (`avbtool` + `unpack_bootimg` + `verify_build.sh` PASS) |
+| `out/full/initramfs-full-6.6.cpio.xz` | 12,355,772 | `bdc6e521fcf2781540023dbac798f5e2498dc678bea7e312a60b0bec26a5d0c0` | 已静态验证 (`xz --check=crc32`, 含 11 枚 `.ko` + 早期/守护 COM 包装器) |
+| `out/full/boot-full-6.6.raw.img` | 28,329,984 | `14106e2bbe55d35035e988e1fd51949d24d9d2181c2ed4886b0ff29a9207f74c` | 已静态验证 (Boot v2, `< 32 MiB`, 含 `console=tty0 fbcon=rotate:3,font:TER16x32 panic=8`) |
+| `out/full/boot-full-6.6.img` | 33,554,432 | `e6643dbe48d397870c2e453ebd8e0a9ef1773a7d3be2db53cfe57f05e3279957` | 已静态验证 (`avbtool` + `unpack_bootimg` + `verify_build.sh` PASS) |
 | `out/full/modules/*.ko` (11 枚 Stripped) | 10,432,680 (总和) | 见 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) | 已静态验证 (`vermagic=6.6.144-zpd1203-g92c716870252`, CRC `0x2933d34f`, 0 undef) |
 
 #### 全量模式 11 枚内核模块明细 (`vermagic=6.6.144-zpd1203-g92c716870252`, CRC `0x2933d34f`)
@@ -52,7 +52,7 @@
 | `wmt_drv.ko` | 1,699,032 | 6,496,520 | `e2b70394...` | `6c9f26d5...` | 0 undef (PASS) |
 | `wmt_chrdev_wifi.ko` | 52,312 | 318,728 | `d92707c9...` | `ffd5b9c4...` | 0 undef (PASS) |
 | `bt_drv_connac1x.ko` | 96,208 | 658,800 | `20d072c4...` | `8e0e16bd...` | 0 undef (PASS) |
-| `wlan_drv_gen4m.ko` | 5,344,336 | 49,593,112 | `b5fbd68b...` | `f86d161b...` | 0 undef (PASS) |
+| `wlan_drv_gen4m.ko` | 5,344,336 | 49,593,112 | `b179e903...` | `3ead9da9...` | 0 undef (PASS) |
 
 ### 2. 最小诊断模式 (`mode=minimal`, `zpd1203_minimal_defconfig`, 前一基线 `6.6.144-zpd1203-g79934f29bfe5`)
 
