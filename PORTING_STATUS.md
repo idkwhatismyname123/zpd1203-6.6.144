@@ -1,6 +1,6 @@
 # ZPD1203 Linux 6.6 移植进度追踪 (PORTING_STATUS.md)
 
-- **当前阶段**：**已编译通过 / 已静态验证第 #8 轮（内建 `CONFIG_KEYBOARD_MTK_KPD=y` + `CONFIG_DEVICE_MODULES_KEYBOARD_MTK_PMIC=y` 物理按键修复，待用户确认刷写实测）**；平板当前实机运行**已实机验证第 #7 轮（`6.6.144-zpd1203-@idkwhatismyname123` `#7` + `fbcon=map:9` + Wi-Fi/BT 时序修复 + 内核态 MT6358 电量算法）**：成功进入桌面（`sys.boot_completed=1`）、**Wi-Fi 已实机上线并扫到 2.4G/5G AP**、**蓝牙已开启 `state: ON`（零 crash）**、**电池百分比已实机上报 `89%`（`Charge counter: 2621940`, `algo:1`）**，加上此前已实机验证的 `Mali-G52 MC2` GLES 3.2、Himax 触屏/手写笔、音频、`sgm41510` USB 充电及 `ADB + COM`。
+- **当前阶段**：**已实机验证第 #8 轮（`6.6.144-zpd1203-@idkwhatismyname123` `#8` + 内建 `KEYBOARD_MTK_KPD=y` / `DEVICE_MODULES_KEYBOARD_MTK_PMIC=y` + `fbcon=map:9` + Wi-Fi/BT + 电量）**：成功进入桌面（`sys.boot_completed=1`）、**物理三按键（开机、音量+、音量-）实机工作正常**，结合此前第 #5–#7 轮已实机验证的 Wi-Fi（扫描 2.4G/5G AP）、蓝牙（`state: ON`, 0 crash）、电池电量（`89%`, `algo:1`）、`Mali-G52 MC2` GLES 3.2、Himax 触屏/手写笔、音频、`sgm41510` USB 充电及 `ADB + COM`。
 - **目标内核**：**`6.6.144-zpd1203-@idkwhatismyname123`**（零 `-g<sha>` / `+` / `-dirty` 后缀；`AOSP android15-6.6` `50a104daac33` + `Addster09` BSP `8f118e0bd30b` + Moto GPU `2d3b928b88ce` + Moto Connsys 5 仓）
 - **原厂基线**：ZYB Android 12 (`vendor_boot_a.img` 4.19.191 / VNDK 31，`super` 含 LineageOS 21 Android 14 GSI `system_a`)
 - **参考移植**：`idkwhatismyname123/zpd1203-5.10.240` (`test25` / `8a74a527`)
@@ -19,29 +19,31 @@
 | Phase 7 | 主配置固化、全自动化构建/校验/安全测试与恢复脚本 + 屏幕日志 (`fbcon`) & COM 口增强 | 已编译通过 / 已静态验证 | 补丁 `patches/phase7_defconfig/` + `patches/phase7_console_com/`；新增 `scripts/watch_com.ps1`；`full` + `minimal` 均 PASS |
 
 ## 实机测试说明
-> - **第 #7 轮（当前平板实机运行版本：`6.6.144-zpd1203-@idkwhatismyname123` `#7`，`boot_a`）**：已通过 Fastboot 刷入 [boot-full-6.6.img](file:///d:/P3066/out/full/boot-full-6.6.img)（`4ff3be3bdf82e4125aae862a7c2c58324697053e86a73bf549cad8c5651bda58`）并**`已实机验证`**：
->   - **系统与模块**：`uname -a` 为 `Linux localhost 6.6.144-zpd1203-@idkwhatismyname123 #7 SMP PREEMPT Wed Nov 25 15:51:49 AEST 2026 aarch64 Toybox`、`sys.boot_completed=1`、`lsmod` 全部 11 枚 `.ko` 加载（`bt_drv_connac1x` `Used by 1`、`mali_kbase_mt6768` `Used by 15`）。
+> - **第 #8 轮（当前平板实机运行版本：`6.6.144-zpd1203-@idkwhatismyname123` `#8`，`boot_a`）**：已通过 Fastboot 刷入 [boot-full-6.6.img](file:///d:/P3066/out/full/boot-full-6.6.img)（`08780becbd267fbab4cf96e94d68701527924de45011b1bb6e3348ca4dde97f6`）并**`已实机验证`**：
+>   - **系统与模块**：`uname -a` 为 `Linux localhost 6.6.144-zpd1203-@idkwhatismyname123 #8 SMP PREEMPT Wed Nov 25 16:16:55 AEST 2026 aarch64 Toybox`、`sys.boot_completed=1`、`lsmod` 全部 11 枚 `.ko` 已加载。
+>   - **物理按键（开机 / 音量+ / 音量-）**：`10010000.kp` 绑定 `mtk-kpd`（`event0`, `KEY=4000000000000 0`, key `114 -> VOLUME_DOWN`）、`mtk-pmic-keys` 绑定 `mt6358keys`（`event1`, `KEY=18000000000000 0`, key `115 -> VOLUME_UP`, `116 -> POWER`）；`dumpsys input` 映射 `/system/usr/keylayout/Generic.kl`；实机按键后 `/proc/interrupts` 记录 IRQ `209..212`（`mt6358-irq 48..51`）触发 `2/3/2/3` 次、IRQ `224`（`GICv3 105` `mtk-kpd`）触发 `4` 次，用户实操确认三键均正常响应。
+> - **第 #7 轮既有实机确认项（`boot_a` `#7`, `4ff3be3b...`）**：
 >   - **Wi-Fi**：`emi_mem_init` 获取 `pa=0xbf000000 size=0x400000`；开启 Wi-Fi 后 `wlanProbe` / `FW_START EVT success!!` / `WMT turn on WIFI success!`，`wlan0`（`<wlan-mac>`）`<UP>`，`cmd wifi list-scan-results` 实测扫出 多个 2.4 GHz 与 5 GHz 周边热点；关联 Wi-Fi 上网尚待实际连接测试。
 >   - **蓝牙**：`OPID(3) type(0) ok`、`WMT turn on BT OK!`、`STP is ready!`，`dumpsys bluetooth_manager` 显示 `enabled: true`、`state: ON`、`address: <bt-mac>`、`Bluetooth crashed 0 times`，A2DP/AVRCP/HFP/HID Profile 已就绪；实际配对音频传输尚待实机测试。
 >   - **电池电量百分比**：`fgauge` 运行 `algo:1`（`soc:89 uisoc:89 vbat:4313 baton:695`），`dumpsys battery` 与 `/sys/class/power_supply/battery/uevent` 均显示 `level: 89` / `POWER_SUPPLY_CAPACITY=89`、`Charge counter: 2621940`、`CHARGE_FULL=2946000`、`TIME_TO_FULL_NOW=98865`、`status: Charging`。
 > - **第 #5 / #6 轮既有实机确认项**：`COM20` + `ADB+COM`（`0x0e8d:0x2006`）[logs_20261125_140716](file:///d:/P3066/out/logs_20261125_140716)、`Mali-G52 MC2` OpenGL ES 3.2 `v1.r32p1-01eac0`、Himax `HX83102J` 触屏/手写笔、`mt6768-mt6358` + `aw87xxx@59/5A`、`lcd-backlight`、`sgm41510` USB 充电在线、`fbcon=map:9` 永久禁用屏幕跑码（`vtconsole` 仅存 `vtcon0`）。待进一步打磨项：`disp_ovl0@1400b000` 缺 phandle `262144` 导致的原生 `mediatek-drm` 回退（当前走 `fb0_bridge`），以及 Wi-Fi 联网、蓝牙配对、扬声器外放的端到端实机使用测试。
 
-## 构建历史记录（最新待测第 #8 轮：`full` `6.6.144-zpd1203-@idkwhatismyname123`，内建物理按键驱动 + 既有 Wi-Fi/BT/电量修复 + `fbcon=map:9`）
+## 构建历史记录（当前实机版本 第 #8 轮：`full` `6.6.144-zpd1203-@idkwhatismyname123`，内建物理按键驱动 + 既有 Wi-Fi/BT/电量修复 + `fbcon=map:9`）
 
-> 全部 8 个 WSL2 Git 仓库均已清洁提交（`clean=True`）；以下全量产物大小与 SHA256 均取自最新第 #8 轮构建 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) 与 `scripts/verify_build.sh --mode full` 实测输出（**`已编译通过 / 已静态验证`，尚未刷机实测**；实机目前仍运行第 #7 轮）；最小诊断模式 `zpd1203_minimal_defconfig` 已同步内建按键配置与 `@idkwhatismyname123`（尚未重编，仍保留 `g79934f29bfe5` 构建产物）。
+> 全部 8 个 WSL2 Git 仓库均已清洁提交（`clean=True`）；以下全量产物大小与 SHA256 均取自本次实机验证第 #8 轮 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) 与 `scripts/verify_build.sh --mode full` 实测输出；最小诊断模式 `zpd1203_minimal_defconfig` 已同步内建按键配置与 `@idkwhatismyname123`（尚未重编，仍保留 `g79934f29bfe5` 构建产物）。
 
 ### 1. 全量模式 (`mode=full`, `zpd1203_defconfig`, `6.6.144-zpd1203-@idkwhatismyname123`)
 
 | 目标产物 | 大小 (Bytes) | SHA256 | 验证状态 |
 |---|---|---|---|
-| `out/full/Image` | 42,834,432 | `a60f6e236a71d0e501142bdefe01658d5222d316ec70c31e094c42ef5020a2ab` | 已编译通过 / 已静态验证 (`System.map` 含 `kpd_pdrv_probe` / `mtk_pmic_keys_probe`) |
-| `out/full/Image.gz` | 15,805,355 | `662a2beea00a085f7c58f21a82d56f2e4e3c4dfa40a913309f6962e31289ccf9` | 已静态验证 (Banner 含 `6.6.144-zpd1203-@idkwhatismyname123`, 无 `-dirty`) |
-| `out/full/mt6768-zpd1203.dtb` | 172,925 | `882c53f7de489df845f83c3bd482be058ee5e369c800c07e5c7b0eac95aadf2e` | 已静态验证 (`fdtoverlay` `dtbo_a_0.dtb` -> 203,136 B) |
-| `out/full/dtb-full-6.6.dtimg` | 172,989 | `f35dffb2eb982b89e6169fe1482bb6afa5a250f0f82bb0081649187073985126` | 已静态验证 (DT Table `0xd7b7ab1e`) |
-| `out/full/initramfs-full-6.6.cpio.xz` | 12,362,652 | `c6be81a0e53957cf72f1c44af35b5276569da5b14266d3ded0427a4b2ec336e3` | 已静态验证 (`xz --check=crc32`, 含 11 枚重编 `.ko` + `a12_init_wrapper`) |
-| `out/full/boot-full-6.6.raw.img` | 28,346,368 | `acf235b8970dc5d8a63aa9cb697305a0830b17b4a9382b41c949abdb93932b36` | 已静态验证 (Boot v2, `< 32 MiB`, `fbcon=map:9 loglevel=4 panic=8 androidboot.selinux=permissive`) |
-| `out/full/boot-full-6.6.img` | 33,554,432 | `08780becbd267fbab4cf96e94d68701527924de45011b1bb6e3348ca4dde97f6` | 已静态验证 (`verify_build.sh` PASS；待用户确认刷入 `boot_a`) |
-| `out/full/modules/*.ko` (11 枚 Stripped) | 10,432,144 (总和) | 见 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) | 已静态验证 (`vermagic=6.6.144-zpd1203-@idkwhatismyname123`, `0 undef`) |
+| `out/full/Image` | 42,834,432 | `a60f6e236a71d0e501142bdefe01658d5222d316ec70c31e094c42ef5020a2ab` | 已实机验证 (`System.map` 与 `dmesg` 含 `kpd_pdrv_init` / `mtk_pmic_keys`) |
+| `out/full/Image.gz` | 15,805,355 | `662a2beea00a085f7c58f21a82d56f2e4e3c4dfa40a913309f6962e31289ccf9` | 已实机验证 (Banner 含 `6.6.144-zpd1203-@idkwhatismyname123`, 无 `-dirty`) |
+| `out/full/mt6768-zpd1203.dtb` | 172,925 | `882c53f7de489df845f83c3bd482be058ee5e369c800c07e5c7b0eac95aadf2e` | 已实机验证 (`fdtoverlay` `dtbo_a_0.dtb` -> 203,136 B) |
+| `out/full/dtb-full-6.6.dtimg` | 172,989 | `f35dffb2eb982b89e6169fe1482bb6afa5a250f0f82bb0081649187073985126` | 已实机验证 (DT Table `0xd7b7ab1e`) |
+| `out/full/initramfs-full-6.6.cpio.xz` | 12,362,652 | `c6be81a0e53957cf72f1c44af35b5276569da5b14266d3ded0427a4b2ec336e3` | 已实机验证 (`xz --check=crc32`, 含 11 枚重编 `.ko` + `a12_init_wrapper`) |
+| `out/full/boot-full-6.6.raw.img` | 28,346,368 | `acf235b8970dc5d8a63aa9cb697305a0830b17b4a9382b41c949abdb93932b36` | 已实机验证 (Boot v2, `< 32 MiB`, `fbcon=map:9 loglevel=4 panic=8 androidboot.selinux=permissive`) |
+| `out/full/boot-full-6.6.img` | 33,554,432 | `08780becbd267fbab4cf96e94d68701527924de45011b1bb6e3348ca4dde97f6` | 已实机验证 (已刷 `boot_a`, 桌面 + 物理按键全通, `verify_build.sh` PASS) |
+| `out/full/modules/*.ko` (11 枚 Stripped) | 10,432,144 (总和) | 见 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) | 已实机验证 (`vermagic=6.6.144-zpd1203-@idkwhatismyname123`, `lsmod` 11/11 已加载) |
 
 #### 全量模式 11 枚内核模块明细 (`vermagic=6.6.144-zpd1203-@idkwhatismyname123`, CRC `0x2933d34f`)
 
