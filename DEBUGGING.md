@@ -65,3 +65,17 @@
   - 根因：`drivers/memory/mediatek/dramc.c` 的 `dramc_probe()` 在第 221 行先设置了全局 `dramc_pdev = pdev;`，随后在解析 DT `dram_type` 失败时直接 `return -EINVAL` 退出，此时 `platform_set_drvdata(pdev, dramc_dev_ptr)` 尚未执行；当 `spm_get_spmfw_idx()` 调用 `mtk_dramc_get_ddr_type()` 时，`dramc_pdev` 非空但 `platform_get_drvdata(dramc_pdev)` 返回 `NULL`，导致访问 `dramc_dev_ptr->dram_type` 崩溃。
 - **修复措施（已合入 `0d43534325ef` 并重新构建验证 `full`）**：
   - 将 `dramc_pdev = pdev;` 移至 `platform_set_drvdata(pdev, dramc_dev_ptr);` 之后发布，并为 `dramc.c` 内全部 `platform_get_drvdata(dramc_pdev)` 调用点（`mr_show`、`mr4_show`、`mtk_dramc_get_steps_freq`、`mtk_dramc_get_data_rate`、`mtk_dramc_get_mr4`、`mtk_dramc_get_ddr_type`）补充 `NULL` 防护；已交叉核查 `emicen.c`/`emiisu.c`/`emimpu.c` 均已在探测成功后再赋 `*_pdev` 且 `spm_get_spmfw_idx()` 在无 DRAMC 时安全返回 `0`。
+
+### 记录 #3：2026-11-25 第三版 `boot-full-6.6.img` (`0d43534325ef`, `e6643dbe...`) 实机跑码至 `t=227s+` 与 SELinux Enforcing 阻塞定位
+
+- **重要实机突破（实机屏幕照片 `t=223s–227s`）**：
+  1. `dramc.c` 修复完全生效，Linux `6.6.144-zpd1203-g92c716870252` 顺利通过全部内核 `initcall`（未再发生 Kernel Panic 或重启），挂载 `super` 动态分区，完成 `a12_init_wrapper` `SwitchRoot`，并拉起 Android `init` 与 SELinux 策略加载，设备稳定运行至 **`t=227s+`** 持续输出日志。
+  2. 76 秒 USB 遥测（[com_full_fix2_20261125_131905.log](file:///d:/P3066/out/com_full_fix2_20261125_131905.log)）中未见 PreLoader 二次跳变，说明设备未处于重启循环，而是被 SELinux Enforcing 拦截后 USB Gadget 无法完成枚举。
+- **阻塞根因（屏幕实拍日志）**：
+  - 屏幕持续刷屏：`type=1400 audit(...): avc: denied { ... } for pid=... comm="init" scontext=u:r:kernel:s0 ... permissive=0`（涉及 `/dev/kmsg`、`graphics_device`、`configfs`、`tmpfs`）。
+  1. **主因 (`permissive=0`)**：`scripts/package_boot.sh` 注入的 `CMDLINE` 缺少 `androidboot.mode=normal androidboot.selinux=permissive`（原 5.10 在 `CMDLINE` 显式传入该参数）。Android `init` 仅校验内核命令行中的 `androidboot.selinux=permissive` 而非 `prop.default`，导致虽然内核已启用 `CONFIG_SECURITY_SELINUX_DEVELOP=y`，仍被 Android `init` 强制切入 Enforcing。
+  2. **次因（20 Hz 刷屏放大）**：[a12_init_wrapper.c](file:///d:/P3066/zpd1203/tools/a12_init_wrapper.c) 的 `run_logger_child()`（以 `u:r:kernel:s0` / `comm="init"` 运行）在权限受拒或设备未就绪时按 50 ms 循环无退避地重复调用 `ensure_dev_perms()`、`bind_early_acm()` 与 `bind_composite_g1()`，加速触发内核日志限速与 `fbcon` 刷屏。
+- **修复措施（已重编并静态验证通过 `boot-full-6.6.img` SHA256 `c40aa239...`）**：
+  1. 在 [package_boot.sh](file:///d:/P3066/scripts/package_boot.sh) 为 `full` 与 `minimal` 的 `CMDLINE` 均追加 `androidboot.mode=normal androidboot.selinux=permissive`。
+  2. 在 [verify_build.sh](file:///d:/P3066/scripts/verify_build.sh) 增加 `androidboot.mode=normal` 与 `androidboot.selinux=permissive` 启动命令行校验断言。
+  3. 在 [a12_init_wrapper.c](file:///d:/P3066/zpd1203/tools/a12_init_wrapper.c) 为 `ensure_dev_perms()`（限前 60s 内每秒一次）以及 `bind_early_acm()` / `bind_composite_g1()`（失败后按 2s / 最多 15 次退避重试）加入节流与上限控制。

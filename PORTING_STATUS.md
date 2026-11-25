@@ -1,6 +1,6 @@
 # ZPD1203 Linux 6.6 移植进度追踪 (PORTING_STATUS.md)
 
-- **当前阶段**：**已完成第 #2 轮实机 `fbcon` 屏幕栈取证修复与全量重编校验**（`full` 新版 `6.6.144-zpd1203-g92c716870252` + `device_modules` `0d43534325ef` 达 **`已编译通过` / `已静态验证`**）；待用户将平板进入 Fastboot 并确认后刷入 `boot_a` 继续实机测试。
+- **当前阶段**：**已完成第 #3 轮实机跑码（`t=227s+` SELinux Enforcing 定位）修复与全量 Ramdisk/Boot 重打包校验**（`full` 新版 `6.6.144-zpd1203-g92c716870252` + `device_modules` `0d43534325ef` + `androidboot.selinux=permissive` 与包装器退避节流，达 **`已编译通过` / `已静态验证`**）；待用户重启至 Fastboot 并确认后刷入 `boot_a` 继续实机测试。
 - **目标内核**：**`6.6.144-zpd1203-g92c716870252`**（零 `-dirty` 后缀；`AOSP android15-6.6` `92c716870252` + `Addster09` BSP `0d43534325ef` + Moto GPU `2d3b928b88ce` + Moto Connsys 5 仓）
 - **原厂基线**：ZYB Android 12 (`vendor_boot_a.img` 4.19.191 / VNDK 31，`super` 含 LineageOS 21 Android 14 GSI `system_a`)
 - **参考移植**：`idkwhatismyname123/zpd1203-5.10.240` (`test25` / `8a74a527`)
@@ -19,11 +19,11 @@
 | Phase 7 | 主配置固化、全自动化构建/校验/安全测试与恢复脚本 + 屏幕日志 (`fbcon`) & COM 口增强 | 已编译通过 / 已静态验证 | 补丁 `patches/phase7_defconfig/` + `patches/phase7_console_com/`；新增 `scripts/watch_com.ps1`；`full` + `minimal` 均 PASS |
 
 ## 实机测试说明
-> 已完成两轮实机测试取证：第 #1 轮通过 `pstore` 证实推进至 `t=0.590s` 并修复 `bq2589x`/`usb_prepare_clock`；第 #2 轮实机 `fbcon` + `panic=8` 屏幕栈证实推进至 `t=5.85s` (`late_initcall`) 并定位 `dramc.c` 空指针（详见 [DEBUGGING.md](file:///d:/P3066/DEBUGGING.md)）。新版 `dramc.c` 修复版尚未再次实机启动，各硬件子系统严格维持 **`已编译通过`** / **`已静态验证`** / **`尚未验证`** / **`已知故障`** 标注。
+> 已完成三轮实机测试取证：第 #1 轮通过 `pstore` 证实推进至 `t=0.590s` 并修复 `bq2589x`/`usb_prepare_clock`；第 #2 轮实机 `fbcon` + `panic=8` 屏幕栈证实推进至 `t=5.85s` (`late_initcall`) 并定位 `dramc.c` 空指针；第 #3 轮证实 `dramc` 修复生效并顺利通过全部内核 `initcall`、挂载 `super`、SwitchRoot 与 Android `init` 加载 SELinux 策略至 `t=227s+`，定位 `CMDLINE` 缺少 `androidboot.selinux=permissive` 及 `a12_init_wrapper.c` 无退避重试导致的 `avc: denied ... permissive=0` 刷屏（详见 [DEBUGGING.md](file:///d:/P3066/DEBUGGING.md)）。修复重打包后的新版 `boot-full-6.6.img` 尚未再次实机启动，各硬件子系统继续严格维持 **`已编译通过`** / **`已静态验证`** / **`尚未验证`** / **`已知故障`** 标注。
 
-## 构建历史记录（`dramc` 崩溃修复 + 早期屏幕日志终版 `6.6.144-zpd1203-g92c716870252`）
+## 构建历史记录（`dramc` 崩溃修复 + SELinux Permissive Cmdline & 包装器节流版 `6.6.144-zpd1203-g92c716870252`）
 
-> 全部 8 个 WSL2 Git 仓库均已清洁提交（`clean=True`）；以下全量产物大小与 SHA256 均取自本次重编后 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) 与 `scripts/verify_build.sh --mode full` 实测输出；最小诊断模式尚停留在 `g79934f29bfe5` 构建。
+> 全部 8 个 WSL2 Git 仓库均已清洁提交（`clean=True`）；以下全量产物大小与 SHA256 均取自本次重打包后 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) 与 `scripts/verify_build.sh --mode full` 实测输出；最小诊断模式尚停留在 `g79934f29bfe5` 构建。
 
 ### 1. 全量模式 (`mode=full`, `zpd1203_defconfig`, `6.6.144-zpd1203-g92c716870252`)
 
@@ -33,9 +33,9 @@
 | `out/full/Image.gz` | 15,795,420 | `e4b916d4a675dac29a66f530a5f2e8d61a07173cf4a465c43f5c48be6b9b46a6` | 已编译通过 (Banner 无 `-dirty`, 含 `FB_SIMPLE` + `fbcon` + `U_SERIAL_CONSOLE`) |
 | `out/full/mt6768-zpd1203.dtb` | 172,706 | `f2f36e351558e61e8b5a73ee56eed923b530f00ff3fae01e20509f4992b7545e` | 已静态验证 (`fdtoverlay` `dtbo_a_0.dtb` -> 202,917 B, `chosen/framebuffer0=okay`) |
 | `out/full/dtb-full-6.6.dtimg` | 172,770 | `290fc69e289664f3cb800ccec3237c2bf84d0882272978e9640956a740848fca` | 已静态验证 (DT Table `0xd7b7ab1e`) |
-| `out/full/initramfs-full-6.6.cpio.xz` | 12,355,772 | `bdc6e521fcf2781540023dbac798f5e2498dc678bea7e312a60b0bec26a5d0c0` | 已静态验证 (`xz --check=crc32`, 含 11 枚 `.ko` + 早期/守护 COM 包装器) |
-| `out/full/boot-full-6.6.raw.img` | 28,329,984 | `14106e2bbe55d35035e988e1fd51949d24d9d2181c2ed4886b0ff29a9207f74c` | 已静态验证 (Boot v2, `< 32 MiB`, 含 `console=tty0 fbcon=rotate:3,font:TER16x32 panic=8`) |
-| `out/full/boot-full-6.6.img` | 33,554,432 | `e6643dbe48d397870c2e453ebd8e0a9ef1773a7d3be2db53cfe57f05e3279957` | 已静态验证 (`avbtool` + `unpack_bootimg` + `verify_build.sh` PASS) |
+| `out/full/initramfs-full-6.6.cpio.xz` | 12,360,852 | `9879b50ce2ac892cbe3ccdb3b61e3756fc0fbd2c6b412437e8e162584133b59a` | 已静态验证 (`xz --check=crc32`, 含 11 枚 `.ko` + 退避节流版 `a12_init_wrapper`) |
+| `out/full/boot-full-6.6.raw.img` | 28,334,080 | `c3633f294f6f2b8f20f85a3adeca40c3576ce19fe691f99c4ee5d43299ac204d` | 已静态验证 (Boot v2, `< 32 MiB`, 含 `fbcon` + `panic=8` + `androidboot.selinux=permissive`) |
+| `out/full/boot-full-6.6.img` | 33,554,432 | `c40aa239b74a8f76c540f772c9f9197f78db0e5332553d302da3ab18546f2813` | 已静态验证 (`avbtool` + `unpack_bootimg` + `verify_build.sh` PASS) |
 | `out/full/modules/*.ko` (11 枚 Stripped) | 10,432,680 (总和) | 见 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) | 已静态验证 (`vermagic=6.6.144-zpd1203-g92c716870252`, CRC `0x2933d34f`, 0 undef) |
 
 #### 全量模式 11 枚内核模块明细 (`vermagic=6.6.144-zpd1203-g92c716870252`, CRC `0x2933d34f`)

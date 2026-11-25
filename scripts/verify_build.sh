@@ -77,6 +77,8 @@ chk("mt6768.force_slot_a=1" in cmdline, "mt6768.force_slot_a=1 in cmdline")
 chk("panic=8" in cmdline, "panic=8 in cmdline")
 chk("console=tty0" in cmdline, "console=tty0 in cmdline")
 chk("fbcon=rotate:3,font:TER16x32" in cmdline, "fbcon=rotate:3,font:TER16x32 in cmdline")
+chk("androidboot.mode=normal" in cmdline, "androidboot.mode=normal in cmdline")
+chk("androidboot.selinux=permissive" in cmdline, "androidboot.selinux=permissive in cmdline")
 
 def align(n, p):
     return ((n + p - 1) // p) * p

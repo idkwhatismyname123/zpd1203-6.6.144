@@ -680,6 +680,10 @@ static void run_logger_child(int kmsg_fd, int proc_fd, int bridge_fd,
     int rebind_count = 0;
     int loops = 0;
     int new_root_loops = 0;
+    int early_acm_next_try = 300;
+    int early_acm_tries = 0;
+    int g1_next_try = 0;
+    int g1_tries = 0;
 
     setsid();
     signal(SIGPIPE, SIG_IGN);
@@ -832,27 +836,34 @@ static void run_logger_child(int kmsg_fd, int proc_fd, int bridge_fd,
             }
         }
 
-        if (in_new_root) {
+        if (in_new_root && new_root_loops <= 1200 && (new_root_loops % 20 == 1)) {
             ensure_dev_perms(&fb_chmed, &mali_chmed, &ion_chmed);
         }
 
-        if (!early_acm_bound && !switched_to_g1 && loops >= 300 &&
+        if (!early_acm_bound && !switched_to_g1 && loops >= early_acm_next_try &&
+            early_acm_tries < 15 &&
             (!in_new_root || access("/config/usb_gadget/g1/configs/b.1", F_OK) != 0)) {
+            early_acm_tries++;
             if (bind_early_acm(&tty_fd, hw_udc) == 0) {
                 early_acm_bound = 1;
+            } else {
+                early_acm_next_try = loops + 40;
             }
         }
 
-        if (in_new_root && !switched_to_g1 &&
+        if (in_new_root && !switched_to_g1 && loops >= g1_next_try && g1_tries < 15 &&
             access("/config/usb_gadget/g1/configs/b.1", F_OK) == 0) {
             if (access("/dev/usb-ffs/adb/ep1", F_OK) == 0) {
                 if (early_acm_bound) {
                     unbind_early_acm(&tty_fd);
                     early_acm_bound = 0;
                 }
+                g1_tries++;
                 if (bind_composite_g1(&tty_fd, hw_udc, 1) == 0) {
                     switched_to_g1 = 1;
                     g1_with_adb = 1;
+                } else {
+                    g1_next_try = loops + 40;
                 }
             } else if (new_root_loops >= 500) {
                 klog_note("<4>[ZPD1203-6.6] STAGE 7: ep1 timeout (~25s post-SwitchRoot), binding ACM-only fallback on g1\n");
@@ -860,9 +871,12 @@ static void run_logger_child(int kmsg_fd, int proc_fd, int bridge_fd,
                     unbind_early_acm(&tty_fd);
                     early_acm_bound = 0;
                 }
+                g1_tries++;
                 if (bind_composite_g1(&tty_fd, hw_udc, 0) == 0) {
                     switched_to_g1 = 1;
                     g1_with_adb = 0;
+                } else {
+                    g1_next_try = loops + 40;
                 }
             }
         } else if (in_new_root && switched_to_g1 && g1_with_adb &&
