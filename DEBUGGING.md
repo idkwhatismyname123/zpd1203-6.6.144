@@ -79,3 +79,21 @@
   1. 在 [package_boot.sh](file:///d:/P3066/scripts/package_boot.sh) 为 `full` 与 `minimal` 的 `CMDLINE` 均追加 `androidboot.mode=normal androidboot.selinux=permissive`。
   2. 在 [verify_build.sh](file:///d:/P3066/scripts/verify_build.sh) 增加 `androidboot.mode=normal` 与 `androidboot.selinux=permissive` 启动命令行校验断言。
   3. 在 [a12_init_wrapper.c](file:///d:/P3066/zpd1203/tools/a12_init_wrapper.c) 为 `ensure_dev_perms()`（限前 60s 内每秒一次）以及 `bind_early_acm()` / `bind_composite_g1()`（失败后按 2s / 最多 15 次退避重试）加入节流与上限控制。
+
+### 记录 #4：2026-11-25 第四版实机跑码（`c40aa239...`）`COM20` 完整内核日志抓包与 4 项根因修复
+
+- **抓包路径与实机成果**：[com20_live_6.6_20261125_134002.log](file:///d:/P3066/out/com20_live_6.6_20261125_134002.log)（从 `COM20` `USB\VID_1D6B&PID_0104\<device-serial>` 抓回 `723,919` 字节 / `4,221` 行，内核序列 `seq=3864..18500`、`t=93.5s..249.0s`），配合 [com_full_fix3_20261125_133552.log](file:///d:/P3066/out/com_full_fix3_20261125_133552.log) 实证：
+  1. 设备零崩溃、零重启循环（`preloaderEdges=1`），所有 `avc: denied` 已切换为 `permissive=1`。
+  2. Connsys Wi-Fi/BT 在实机完成补丁下载、RF 校准（`Backup success`）与 `mtk_wcn_wmt_func_ctrl:OPID(3) type(9) ok`（`t=139.4s` 屏幕照片）。
+  3. `COM20` `[status]`（`L4085`）回报：`[status] new_root=1 early_acm=0 g1_switched=1 rebinds=0 hwc_bound=1 ep1=1 dri=0 fb0=1 mali=1 ion=1 pstore=0 UDC='musb-hdrc'`。
+  4. `mt6768-afe-pcm`（`vendor.audio-hal`）、`bq2589x`/`sgm41510`（`usb online(1), pg(1), psy_usb_type:3, ichg=1500mA, Vbat=4257`）、`zygote`、`netd`、`wificond`、`mediaserver`、`adbd`（`T1059`, `ep1=1`）均已正常拉起。
+- **定位的 4 项阻塞/关键根因**：
+  1. **GED `GE_ALLOC` ABI 不兼容（致 `surfaceflinger` 反复 SIGABRT）**：原厂 Android 12 `allocator@4.0`（`PID 921`）传入 18 个 region（`76 B`），而 6.6 `ged_main.c` 硬性要求 `GE_ALLOC_STRUCT_NUM=22`（`92 B`）报 `Failed to region_num, it must be 22`，且 `ged_ge.c` 将负数 `ge_fd=-1` 误判为 `GED_OK`，引发 `binder: 921:921 got transaction with invalid fd, -1` 与 `surfaceflinger`（`PID 2668`）`signal 6` 连环重启。
+  2. **MT6768 `i2c2`/`i2c3`/`i2c4` 多通道缺少 `ch-offset-i2c = <0x100>`（致 `aw87xxx` 阻塞 104 秒）**：6.6 `i2c-mt65xx.c` 依赖 DTS 属性 `ch-offset-i2c`，缺失导致 `i2c3` (`1100f000`) 对 `aw87xxx_pa@59/5A` 访问错误偏移并超时 `104,083,011 usecs`。
+  3. **`a12_init_wrapper.c` ACM 锁死阻断 ADB**：因前述 104 秒延迟导致 `SwitchRoot` 后 25 秒内未见 `ep1`，`g1` 回退为纯 `acm.gs1` (`VID 0x1d6b / PID 0x0104`) 后看门狗不再将其升级为 `ffs.adb+acm.gs1`，致后续 `init.mt6768.usb.rc` 报 `File exists` / `Device or resource busy`。
+  4. **早期日志被覆盖（`dri=0` 原因未保留）**：默认 `CONFIG_LOG_BUF_SHIFT=17` (128 KiB) 加 `ignore_loglevel loglevel=8` 刷屏导致 `t=0..93.5s` 早期启动与 DRM 初始化日志被挤出环形缓冲区。
+- **修复与验证（`6.6.144-zpd1203-ga8f0da857734` + `device_modules` `4779d25e29f7`）**：
+  1. 修改 `ged_main.c` / `ged_ge.c` 兼容 1..22 个 region（18 与 22 region 均按真实 `i32InBufferSize` 解析与分配）并修正 `ge_fd >= 0` 判错（见 `device_modules-6.6-0003-*.patch`）。
+  2. 在 [zpd1203-power-audio-wireless.dtsi](file:///d:/P3066/zpd1203/dts/zpd1203-power-audio-wireless.dtsi) 为 `i2c2`/`i2c3`/`i2c4` 补全 `ch-offset-i2c = <0x100>;` / `ch-offset-ccu = <0x200>;`（`i2c3` 另配 `scl/sda-gpio-id`），并在 `aw87xxx_device.c` 遇到 `-ETIMEDOUT` 时立即跳出（见 `device_modules-6.6-0004-*.patch`）。
+  3. 在 `zpd1203_defconfig` / `zpd1203_console_com.config` 提高 `CONFIG_LOG_BUF_SHIFT=20` (1 MiB)（见 `kernel-6.6-0002-*.patch`）。
+  4. 在 [a12_init_wrapper.c](file:///d:/P3066/zpd1203/tools/a12_init_wrapper.c) 增加 `ep1` 就绪后从纯 ACM 自动升级至 `ffs.adb+acm.gs1` 分支（`g1_tries < 20`），并在 [package_boot.sh](file:///d:/P3066/scripts/package_boot.sh) 将 `full` 命令行调为 `loglevel=4`。已完成 `./scripts/build_all.sh --mode full` 全量重编校验 PASS。

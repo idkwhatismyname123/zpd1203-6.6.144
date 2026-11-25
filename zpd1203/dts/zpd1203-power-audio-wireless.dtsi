@@ -8,10 +8,19 @@
  * - MT6768 Connsys Wi-Fi/BT regulators + antenna swap + BTIF
  */
 
+&i2c2 {
+	ch-offset-i2c = <0x100>;
+	ch-offset-ccu = <0x200>;
+};
+
 &i2c3 {
 	#address-cells = <1>;
 	#size-cells = <0>;
 	clock-frequency = <400000>;
+	ch-offset-i2c = <0x100>;
+	ch-offset-ccu = <0x200>;
+	scl-gpio-id = <50>;
+	sda-gpio-id = <51>;
 	status = "okay";
 
 	aw87xxx_pa@59 {
@@ -27,6 +36,11 @@
 		dev_index = <1>;
 		status = "okay";
 	};
+};
+
+&i2c4 {
+	ch-offset-i2c = <0x100>;
+	ch-offset-ccu = <0x200>;
 };
 
 &i2c5 {

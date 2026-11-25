@@ -1,0 +1,63 @@
+From 4779d25e29f700e60c024d65bbf2cbf22b4cb808 Mon Sep 17 00:00:00 2001
+From: idkwhatismyname <107376203+idkwhatismyname123@users.noreply.github.com>
+Date: Wed, 25 Nov 2026 13:52:25 +1000
+Subject: [PATCH 4/4] zpd1203: dts/aw87xxx: set i2c2-4 ch-offset-i2c=0x100 and
+ bail on -ETIMEDOUT
+
+---
+ .../dts/mediatek/zpd1203-power-audio-wireless.dtsi | 14 ++++++++++++++
+ sound/soc/codecs/aw87xxx/aw87xxx_device.c          |  2 ++
+ 2 files changed, 16 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/mediatek/zpd1203-power-audio-wireless.dtsi b/arch/arm64/boot/dts/mediatek/zpd1203-power-audio-wireless.dtsi
+index 008bbaa..7b8d569 100644
+--- a/arch/arm64/boot/dts/mediatek/zpd1203-power-audio-wireless.dtsi
++++ b/arch/arm64/boot/dts/mediatek/zpd1203-power-audio-wireless.dtsi
+@@ -8,10 +8,19 @@
+  * - MT6768 Connsys Wi-Fi/BT regulators + antenna swap + BTIF
+  */
+ 
++&i2c2 {
++	ch-offset-i2c = <0x100>;
++	ch-offset-ccu = <0x200>;
++};
++
+ &i2c3 {
+ 	#address-cells = <1>;
+ 	#size-cells = <0>;
+ 	clock-frequency = <400000>;
++	ch-offset-i2c = <0x100>;
++	ch-offset-ccu = <0x200>;
++	scl-gpio-id = <50>;
++	sda-gpio-id = <51>;
+ 	status = "okay";
+ 
+ 	aw87xxx_pa@59 {
+@@ -29,6 +38,11 @@ aw87xxx_pa@5A {
+ 	};
+ };
+ 
++&i2c4 {
++	ch-offset-i2c = <0x100>;
++	ch-offset-ccu = <0x200>;
++};
++
+ &i2c5 {
+ 	#address-cells = <1>;
+ 	#size-cells = <0>;
+diff --git a/sound/soc/codecs/aw87xxx/aw87xxx_device.c b/sound/soc/codecs/aw87xxx/aw87xxx_device.c
+index 8cc321d..ae400bc 100644
+--- a/sound/soc/codecs/aw87xxx/aw87xxx_device.c
++++ b/sound/soc/codecs/aw87xxx/aw87xxx_device.c
+@@ -174,6 +174,8 @@ int aw87xxx_dev_i2c_read_byte(struct aw_device *aw_dev,
+ 		if (ret < 0) {
+ 			AW_DEV_LOGE(aw_dev->dev, "i2c_read cnt=%d error=%d",
+ 				cnt, ret);
++			if (ret == -ETIMEDOUT)
++				break;
+ 		} else {
+ 			*reg_data = ret;
+ 			break;
+-- 
+2.53.0
+

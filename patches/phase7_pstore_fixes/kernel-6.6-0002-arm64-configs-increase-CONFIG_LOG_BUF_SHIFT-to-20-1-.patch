@@ -1,0 +1,25 @@
+From a8f0da8577349cee2617a8c99ca44b940aed416f Mon Sep 17 00:00:00 2001
+From: idkwhatismyname <107376203+idkwhatismyname123@users.noreply.github.com>
+Date: Wed, 25 Nov 2026 13:53:25 +1000
+Subject: [PATCH] arm64: configs: increase CONFIG_LOG_BUF_SHIFT to 20 (1 MiB)
+ for zpd1203
+
+---
+ arch/arm64/configs/zpd1203_defconfig | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/arm64/configs/zpd1203_defconfig b/arch/arm64/configs/zpd1203_defconfig
+index 4967793be..bd29ecd36 100644
+--- a/arch/arm64/configs/zpd1203_defconfig
++++ b/arch/arm64/configs/zpd1203_defconfig
+@@ -445,6 +445,7 @@ CONFIG_FB=y
+ CONFIG_FB_SIMPLE=y
+ CONFIG_BACKLIGHT_CLASS_DEVICE=y
+ CONFIG_FRAMEBUFFER_CONSOLE_ROTATION=y
++CONFIG_LOG_BUF_SHIFT=20
+ CONFIG_SOUND=y
+ CONFIG_SND=y
+ CONFIG_SND_HRTIMER=y
+-- 
+2.53.0
+

@@ -1,0 +1,101 @@
+From c45b87be9df9dbdd0d2f2ead996552421940ad4a Mon Sep 17 00:00:00 2001
+From: idkwhatismyname <107376203+idkwhatismyname123@users.noreply.github.com>
+Date: Wed, 25 Nov 2026 13:51:52 +1000
+Subject: [PATCH 3/4] zpd1203: ged: accept 18-region Android 12 GE_ALLOC ABI
+ and fix negative fd error
+
+---
+ drivers/gpu/mediatek/ged/src/ged_ge.c   | 14 +++++++-----
+ drivers/gpu/mediatek/ged/src/ged_main.c | 30 ++++++++++++++++++-------
+ 2 files changed, 31 insertions(+), 13 deletions(-)
+
+diff --git a/drivers/gpu/mediatek/ged/src/ged_ge.c b/drivers/gpu/mediatek/ged/src/ged_ge.c
+index 9a3a01c..e8bc265 100644
+--- a/drivers/gpu/mediatek/ged/src/ged_ge.c
++++ b/drivers/gpu/mediatek/ged/src/ged_ge.c
+@@ -110,8 +110,12 @@ int ged_ge_alloc(int region_num, uint32_t *region_sizes)
+ 	unsigned long flags;
+ 	int fd;
+ 	int i;
+-	struct GEEntry *entry =
+-		(struct GEEntry *)kmem_cache_zalloc(gPoolCache, GFP_KERNEL);
++	struct GEEntry *entry;
++
++	if (region_num <= 0 || region_num > GE_ALLOC_STRUCT_NUM)
++		return -EINVAL;
++
++	entry = (struct GEEntry *)kmem_cache_zalloc(gPoolCache, GFP_KERNEL);
+ 
+ 	if (!entry) {
+ 		GED_PDEBUG("alloc entry fail, size:%zu\n",
+@@ -135,8 +139,7 @@ int ged_ge_alloc(int region_num, uint32_t *region_sizes)
+ 		goto err_entry_file;
+ 	}
+ 
+-	/* Avoid using the unpredictable value for Fuzzing */
+-	region_num = GE_ALLOC_STRUCT_NUM;
++	/* region_num is validated above and derived from i32InBufferSize in ged_dispatch. */
+ 
+ 	entry->region_num = region_num;
+ 	entry->data =
+@@ -357,7 +360,8 @@ int ged_bridge_ge_alloc(
+ {
+ 	psALLOC_OUT->ge_fd =
+ 		ged_ge_alloc(psALLOC_IN->region_num, psALLOC_IN->region_sizes);
+-	psALLOC_OUT->eError = !!(psALLOC_OUT->ge_fd) ? GED_OK : GED_ERROR_OOM;
++	psALLOC_OUT->eError =
++		(psALLOC_OUT->ge_fd >= 0) ? GED_OK : GED_ERROR_OOM;
+ 	return 0;
+ }
+ 
+diff --git a/drivers/gpu/mediatek/ged/src/ged_main.c b/drivers/gpu/mediatek/ged/src/ged_main.c
+index 4cd8a94..8f8c2b9 100644
+--- a/drivers/gpu/mediatek/ged/src/ged_main.c
++++ b/drivers/gpu/mediatek/ged/src/ged_main.c
+@@ -216,14 +216,20 @@ static long ged_dispatch(struct file *pFile,
+ 		if (GED_BRIDGE_COMMAND_GE_ALLOC ==
+ 				GED_GET_BRIDGE_ID(
+ 				psBridgePackageKM->ui32FunctionID)) {
+-			inputBufferSize = sizeof(int) +
+-			sizeof(uint32_t) * GE_ALLOC_STRUCT_NUM;
+-			// hardcode region_num = GE_ALLOC_STRUCT_NUM,
+-			// need check input buffer size
+-			if (psBridgePackageKM->i32InBufferSize <
+-				inputBufferSize) {
+-				GED_LOGE("Failed to region_num, it must be %d\n",
+-					GE_ALLOC_STRUCT_NUM);
++			int32_t min_sz = (int32_t)(sizeof(int) +
++				sizeof(uint32_t));
++			int32_t max_sz = (int32_t)(sizeof(int) +
++				sizeof(uint32_t) * GE_ALLOC_STRUCT_NUM);
++
++			/* Accept legacy Android 12 (18-region) and newer (22-region) callers. */
++			if (psBridgePackageKM->i32InBufferSize < min_sz ||
++				psBridgePackageKM->i32InBufferSize > max_sz ||
++				((psBridgePackageKM->i32InBufferSize -
++				  (int32_t)sizeof(int)) %
++				 (int32_t)sizeof(uint32_t)) != 0) {
++				GED_LOGE("Failed to region_num (%d), expected %d..%d\n",
++					psBridgePackageKM->i32InBufferSize,
++					min_sz, max_sz);
+ 				goto dispatch_exit;
+ 			}
+ 		}
+@@ -239,6 +245,14 @@ static long ged_dispatch(struct file *pFile,
+ 			goto dispatch_exit;
+ 		}
+ 
++		if (GED_BRIDGE_COMMAND_GE_ALLOC ==
++				GED_GET_BRIDGE_ID(
++				psBridgePackageKM->ui32FunctionID)) {
++			((struct GED_BRIDGE_IN_GE_ALLOC *)pvIn)->region_num =
++				(inputBufferSize - (int32_t)sizeof(int)) /
++				(int32_t)sizeof(uint32_t);
++		}
++
+ 		pvOut = kzalloc(psBridgePackageKM->i32OutBufferSize,
+ 			GFP_KERNEL);
+ 		if (pvOut == NULL)
+-- 
+2.53.0
+

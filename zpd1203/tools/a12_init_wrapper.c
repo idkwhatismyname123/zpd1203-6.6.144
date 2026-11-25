@@ -851,7 +851,7 @@ static void run_logger_child(int kmsg_fd, int proc_fd, int bridge_fd,
             }
         }
 
-        if (in_new_root && !switched_to_g1 && loops >= g1_next_try && g1_tries < 15 &&
+        if (in_new_root && !switched_to_g1 && loops >= g1_next_try && g1_tries < 20 &&
             access("/config/usb_gadget/g1/configs/b.1", F_OK) == 0) {
             if (access("/dev/usb-ffs/adb/ep1", F_OK) == 0) {
                 if (early_acm_bound) {
@@ -878,6 +878,16 @@ static void run_logger_child(int kmsg_fd, int proc_fd, int bridge_fd,
                 } else {
                     g1_next_try = loops + 40;
                 }
+            }
+        } else if (in_new_root && switched_to_g1 && !g1_with_adb &&
+                   loops >= g1_next_try && g1_tries < 20 &&
+                   access("/dev/usb-ffs/adb/ep1", F_OK) == 0) {
+            klog_note("<6>[ZPD1203-6.6] STAGE 7: ep1 ready, upgrading g1 from ACM-only to ffs.adb+acm.gs1\n");
+            g1_tries++;
+            if (bind_composite_g1(&tty_fd, hw_udc, 1) == 0) {
+                g1_with_adb = 1;
+            } else {
+                g1_next_try = loops + 40;
             }
         } else if (in_new_root && switched_to_g1 && g1_with_adb &&
                    (loops % 40 == 0) && rebind_count < 6 &&

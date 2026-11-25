@@ -26,7 +26,7 @@ case "$MODE" in
     RAMDISK_IMG="$BASE/out/initramfs-full-6.6.cpio.xz"
     DTB_WRAPPED="$BASE/out/dtb-full-6.6.dtimg"
     OUT_BOOT="$BASE/out/boot-full-6.6.img"
-    CMDLINE="bootopt=64S3,32N2,64N2 buildvariant=user console=tty0 fbcon=rotate:3,font:TER16x32 8250.nr_uarts=2 panic=8 printk.devkmsg=on ignore_loglevel loglevel=8 clk_ignore_unused pd_ignore_unused regulator_ignore_unused mt6768.force_slot_a=1 androidboot.mode=normal androidboot.selinux=permissive"
+    CMDLINE="bootopt=64S3,32N2,64N2 buildvariant=user console=tty0 fbcon=rotate:3,font:TER16x32 8250.nr_uarts=2 panic=8 printk.devkmsg=on loglevel=4 clk_ignore_unused pd_ignore_unused regulator_ignore_unused mt6768.force_slot_a=1 androidboot.mode=normal androidboot.selinux=permissive"
     ;;
   minimal)
     KOUT="$BASE/out/kernel-6.6"

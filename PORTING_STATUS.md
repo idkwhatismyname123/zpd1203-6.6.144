@@ -1,7 +1,7 @@
 # ZPD1203 Linux 6.6 移植进度追踪 (PORTING_STATUS.md)
 
-- **当前阶段**：**已完成第 #3 轮实机跑码（`t=227s+` SELinux Enforcing 定位）修复与全量 Ramdisk/Boot 重打包校验**（`full` 新版 `6.6.144-zpd1203-g92c716870252` + `device_modules` `0d43534325ef` + `androidboot.selinux=permissive` 与包装器退避节流，达 **`已编译通过` / `已静态验证`**）；待用户重启至 Fastboot 并确认后刷入 `boot_a` 继续实机测试。
-- **目标内核**：**`6.6.144-zpd1203-g92c716870252`**（零 `-dirty` 后缀；`AOSP android15-6.6` `92c716870252` + `Addster09` BSP `0d43534325ef` + Moto GPU `2d3b928b88ce` + Moto Connsys 5 仓）
+- **当前阶段**：**已完成第 #4 轮 `COM20` 实机日志分析（GED/I2C/Wrapper/1MiB-log 修复）与全量清洁重编校验**（`full` 新版 `6.6.144-zpd1203-ga8f0da857734` + `device_modules` `4779d25e29f7`，达 **`已编译通过` / `已静态验证`**）；待用户切入 Fastboot 并确认后刷入 `boot_a` 继续实机测试。
+- **目标内核**：**`6.6.144-zpd1203-ga8f0da857734`**（零 `-dirty` 后缀；`AOSP android15-6.6` `a8f0da857734` + `Addster09` BSP `4779d25e29f7` + Moto GPU `2d3b928b88ce` + Moto Connsys 5 仓）
 - **原厂基线**：ZYB Android 12 (`vendor_boot_a.img` 4.19.191 / VNDK 31，`super` 含 LineageOS 21 Android 14 GSI `system_a`)
 - **参考移植**：`idkwhatismyname123/zpd1203-5.10.240` (`test25` / `8a74a527`)
 
@@ -19,40 +19,40 @@
 | Phase 7 | 主配置固化、全自动化构建/校验/安全测试与恢复脚本 + 屏幕日志 (`fbcon`) & COM 口增强 | 已编译通过 / 已静态验证 | 补丁 `patches/phase7_defconfig/` + `patches/phase7_console_com/`；新增 `scripts/watch_com.ps1`；`full` + `minimal` 均 PASS |
 
 ## 实机测试说明
-> 已完成三轮实机测试取证：第 #1 轮通过 `pstore` 证实推进至 `t=0.590s` 并修复 `bq2589x`/`usb_prepare_clock`；第 #2 轮实机 `fbcon` + `panic=8` 屏幕栈证实推进至 `t=5.85s` (`late_initcall`) 并定位 `dramc.c` 空指针；第 #3 轮证实 `dramc` 修复生效并顺利通过全部内核 `initcall`、挂载 `super`、SwitchRoot 与 Android `init` 加载 SELinux 策略至 `t=227s+`，定位 `CMDLINE` 缺少 `androidboot.selinux=permissive` 及 `a12_init_wrapper.c` 无退避重试导致的 `avc: denied ... permissive=0` 刷屏（详见 [DEBUGGING.md](file:///d:/P3066/DEBUGGING.md)）。修复重打包后的新版 `boot-full-6.6.img` 尚未再次实机启动，各硬件子系统继续严格维持 **`已编译通过`** / **`已静态验证`** / **`尚未验证`** / **`已知故障`** 标注。
+> 已完成四轮实机测试取证：第 #1 轮通过 `pstore` 证实推进至 `t=0.590s` 并修复 `bq2589x`/`usb_prepare_clock`；第 #2 轮实机 `fbcon` + `panic=8` 屏幕栈证实推进至 `t=5.85s` (`late_initcall`) 并定位 `dramc.c` 空指针；第 #3 轮证实 `dramc` 修复生效并顺利通过全部内核 `initcall`、挂载 `super`、SwitchRoot 与 Android `init` 至 `t=227s+` 定位 SELinux Enforcing 死循环；第 #4 轮通过 `COM20` 抓回完整 4,221 行实时日志与照片，实证零重启、SELinux `permissive=1`、`Connsys/WMT`/`mt6768-afe-pcm`/`bq2589x`/`adbd` 均已实机运行，定位并修复了 GED 18/22-region ABI 不兼容、`i2c2-4` 缺 `ch-offset-i2c = <0x100>` 致 `aw87xxx` 阻塞 104s、`a12_init_wrapper` 纯 ACM 锁死与 `LOG_BUF_SHIFT` 过小（详见 [DEBUGGING.md](file:///d:/P3066/DEBUGGING.md)）。修复重编后的新版 `boot-full-6.6.img` 尚未再次实机启动，各硬件子系统继续严格维持 **`已编译通过`** / **`已静态验证`** / **`尚未验证`** / **`已知故障`** 标注。
 
-## 构建历史记录（`dramc` 崩溃修复 + SELinux Permissive Cmdline & 包装器节流版 `6.6.144-zpd1203-g92c716870252`）
+## 构建历史记录（GED ABI + `i2c2-4` + Wrapper ADB + 1 MiB 日志终版 `6.6.144-zpd1203-ga8f0da857734`）
 
-> 全部 8 个 WSL2 Git 仓库均已清洁提交（`clean=True`）；以下全量产物大小与 SHA256 均取自本次重打包后 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) 与 `scripts/verify_build.sh --mode full` 实测输出；最小诊断模式尚停留在 `g79934f29bfe5` 构建。
+> 全部 8 个 WSL2 Git 仓库均已清洁提交（`clean=True`）；以下全量产物大小与 SHA256 均取自本次全量重编后 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) 与 `scripts/verify_build.sh --mode full` 实测输出；最小诊断模式尚停留在 `g79934f29bfe5` 构建。
 
-### 1. 全量模式 (`mode=full`, `zpd1203_defconfig`, `6.6.144-zpd1203-g92c716870252`)
+### 1. 全量模式 (`mode=full`, `zpd1203_defconfig`, `6.6.144-zpd1203-ga8f0da857734`)
 
 | 目标产物 | 大小 (Bytes) | SHA256 | 验证状态 |
 |---|---|---|---|
-| `out/full/Image` | 39,553,536 | `5c619be57ba0836598ca0595704781a98f215336f88f323ca401687134e389d5` | 已编译通过 (`ARM\x64` 有效) |
-| `out/full/Image.gz` | 15,795,420 | `e4b916d4a675dac29a66f530a5f2e8d61a07173cf4a465c43f5c48be6b9b46a6` | 已编译通过 (Banner 无 `-dirty`, 含 `FB_SIMPLE` + `fbcon` + `U_SERIAL_CONSOLE`) |
-| `out/full/mt6768-zpd1203.dtb` | 172,706 | `f2f36e351558e61e8b5a73ee56eed923b530f00ff3fae01e20509f4992b7545e` | 已静态验证 (`fdtoverlay` `dtbo_a_0.dtb` -> 202,917 B, `chosen/framebuffer0=okay`) |
-| `out/full/dtb-full-6.6.dtimg` | 172,770 | `290fc69e289664f3cb800ccec3237c2bf84d0882272978e9640956a740848fca` | 已静态验证 (DT Table `0xd7b7ab1e`) |
-| `out/full/initramfs-full-6.6.cpio.xz` | 12,360,852 | `9879b50ce2ac892cbe3ccdb3b61e3756fc0fbd2c6b412437e8e162584133b59a` | 已静态验证 (`xz --check=crc32`, 含 11 枚 `.ko` + 退避节流版 `a12_init_wrapper`) |
-| `out/full/boot-full-6.6.raw.img` | 28,334,080 | `c3633f294f6f2b8f20f85a3adeca40c3576ce19fe691f99c4ee5d43299ac204d` | 已静态验证 (Boot v2, `< 32 MiB`, 含 `fbcon` + `panic=8` + `androidboot.selinux=permissive`) |
-| `out/full/boot-full-6.6.img` | 33,554,432 | `c40aa239b74a8f76c540f772c9f9197f78db0e5332553d302da3ab18546f2813` | 已静态验证 (`avbtool` + `unpack_bootimg` + `verify_build.sh` PASS) |
-| `out/full/modules/*.ko` (11 枚 Stripped) | 10,432,680 (总和) | 见 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) | 已静态验证 (`vermagic=6.6.144-zpd1203-g92c716870252`, CRC `0x2933d34f`, 0 undef) |
+| `out/full/Image` | 42,764,800 | `8d918925aa69da09bf2b22cb7e9a6eb3896caf0553b9929632ad2469c92aeb23` | 已编译通过 (`ARM\x64` 有效, 含 `LOG_BUF_SHIFT=20` 与 GED/I2C 修复) |
+| `out/full/Image.gz` | 15,798,390 | `1838aa2db96f96a27df1b165c49a65451d41a9dec7226467ac7021e544737995` | 已编译通过 (Banner 无 `-dirty`, 含 `FB_SIMPLE` + `fbcon` + `U_SERIAL_CONSOLE`) |
+| `out/full/mt6768-zpd1203.dtb` | 172,886 | `576208433d90957483f256835b32b22262d7f2eb5c5da23aa257d62b55633f57` | 已静态验证 (`fdtoverlay` `dtbo_a_0.dtb` -> 203,097 B, `i2c2-4 ch-offset-i2c=0x100`) |
+| `out/full/dtb-full-6.6.dtimg` | 172,950 | `f815c2ffe745f197ee7b0c025a6e677eda56360a7a1dca36b79cb705b46402a6` | 已静态验证 (DT Table `0xd7b7ab1e`) |
+| `out/full/initramfs-full-6.6.cpio.xz` | 12,368,636 | `0ae2da0ef9a3ae3cad12c68dd66fc155953f0fdabde82867158eaabde1d9d7a6` | 已静态验证 (`xz --check=crc32`, 含 11 枚 `.ko` + ADB 自动升级版 `a12_init_wrapper`) |
+| `out/full/boot-full-6.6.raw.img` | 28,346,368 | `94d3478f5a6046387c33093f9a977b26acf94cbc12bddd16cad43048ab80aa9e` | 已静态验证 (Boot v2, `< 32 MiB`, `loglevel=4 panic=8 androidboot.selinux=permissive`) |
+| `out/full/boot-full-6.6.img` | 33,554,432 | `56f445606fa1a70813923931980e40398980342bf1a51fc035c8bf739016af1d` | 已静态验证 (`avbtool` + `unpack_bootimg` + `verify_build.sh` PASS) |
+| `out/full/modules/*.ko` (11 枚 Stripped) | 10,432,680 (总和) | 见 [out/full/SHA256SUMS.txt](file:///d:/P3066/out/full/SHA256SUMS.txt) | 已静态验证 (`vermagic=6.6.144-zpd1203-ga8f0da857734`, CRC `0x2933d34f`, 0 undef) |
 
-#### 全量模式 11 枚内核模块明细 (`vermagic=6.6.144-zpd1203-g92c716870252`, CRC `0x2933d34f`)
+#### 全量模式 11 枚内核模块明细 (`vermagic=6.6.144-zpd1203-ga8f0da857734`, CRC `0x2933d34f`)
 
 | 模块 | Stripped 大小 (B) | Unstripped 大小 (B) | Stripped SHA256 | Unstripped SHA256 | 符号闭环 |
 |---|---|---|---|---|---|
-| `mali_mgm_mt6768.ko` | 24,696 | 211,592 | `5f976d10...` | `949aba83...` | 0 undef (PASS) |
-| `mali_kbase_mt6768.ko` | 1,093,016 | 14,922,112 | `49574d42...` | `6a9e6f1e...` | 0 undef (PASS) |
-| `rfkill.ko` | 51,400 | 266,016 | `0b747bd1...` | `5fba3f27...` | 0 undef (PASS) |
-| `cfg80211.ko` | 1,649,040 | 7,500,112 | `fb40b327...` | `e4866c81...` | 0 undef (PASS) |
-| `btif_drv.ko` | 198,872 | 806,560 | `ac00c28d...` | `d26809bc...` | 0 undef (PASS) |
-| `conn_md_drv.ko` | 50,912 | 338,992 | `56212042...` | `17c13a66...` | 0 undef (PASS) |
-| `connfem.ko` | 172,856 | 741,744 | `fb673c03...` | `a14e7e18...` | 0 undef (PASS) |
-| `wmt_drv.ko` | 1,699,032 | 6,496,520 | `e2b70394...` | `6c9f26d5...` | 0 undef (PASS) |
-| `wmt_chrdev_wifi.ko` | 52,312 | 318,728 | `d92707c9...` | `ffd5b9c4...` | 0 undef (PASS) |
-| `bt_drv_connac1x.ko` | 96,208 | 658,800 | `20d072c4...` | `8e0e16bd...` | 0 undef (PASS) |
-| `wlan_drv_gen4m.ko` | 5,344,336 | 49,593,112 | `b179e903...` | `3ead9da9...` | 0 undef (PASS) |
+| `mali_mgm_mt6768.ko` | 24,696 | 211,592 | `f52c8069...` | `1b14f5c8...` | 0 undef (PASS) |
+| `mali_kbase_mt6768.ko` | 1,093,016 | 14,922,112 | `d3f3b25c...` | `7838c428...` | 0 undef (PASS) |
+| `rfkill.ko` | 51,400 | 266,016 | `dbeaa6bb...` | `64235406...` | 0 undef (PASS) |
+| `cfg80211.ko` | 1,649,040 | 7,500,112 | `1f664ff5...` | `218b10e9...` | 0 undef (PASS) |
+| `btif_drv.ko` | 198,872 | 806,560 | `87248660...` | `ce521174...` | 0 undef (PASS) |
+| `conn_md_drv.ko` | 50,912 | 338,992 | `8eda0564...` | `fb61dc46...` | 0 undef (PASS) |
+| `connfem.ko` | 172,856 | 741,744 | `ef41d814...` | `ef8936c4...` | 0 undef (PASS) |
+| `wmt_drv.ko` | 1,699,032 | 6,496,520 | `0b2b3224...` | `fc6fd208...` | 0 undef (PASS) |
+| `wmt_chrdev_wifi.ko` | 52,312 | 318,728 | `7fb5b947...` | `14a9dd97...` | 0 undef (PASS) |
+| `bt_drv_connac1x.ko` | 96,208 | 658,800 | `973de8ab...` | `a2515e9e...` | 0 undef (PASS) |
+| `wlan_drv_gen4m.ko` | 5,344,336 | 49,593,112 | `382e6bae...` | `6e03d79d...` | 0 undef (PASS) |
 
 ### 2. 最小诊断模式 (`mode=minimal`, `zpd1203_minimal_defconfig`, 前一基线 `6.6.144-zpd1203-g79934f29bfe5`)
 
