@@ -1,7 +1,10 @@
 # 当前工作现场交接文档 (HANDOFF.md)
 
 - **最后更新**：2026-11-25
-- **当前状态**：第 #5 轮（`6.6.144-zpd1203-ga8f0da857734`）已**实机成功进入 Android 桌面**（`sys.boot_completed=1`，`ADB + COM` 复合 `0x0e8d:0x2006`、`GLES: ARM, Mali-G52 MC2, OpenGL ES 3.2`、Himax 触屏与手写笔、音频卡 `mt6768-mt6358` + `aw87xxx@59/5A`、`lcd-backlight`、`sgm41510` 充电在线、11 枚 `.ko` 全加载），并已实时解除 `vtcon1/bind` 关掉当前屏幕跑码。现已完成**内核名修改（`6.6.144-zpd1203-@idkwhatismyname123`）及永久关闭 `full` 屏幕跑码（`console=ttyS0,921600n1 fbcon=map:9`）**的全量重编与静态校验（`已编译通过 / 已静态验证`），等待用户确认后刷入 `boot_a`。
+- **当前状态**：**第 #6 轮新版 `6.6.144-zpd1203-@idkwhatismyname123`（含 `fbcon=map:9` 永久禁用屏幕跑码）已刷入 `boot_a` 并`已实机验证`进入 Android 桌面**：
+  - `uname -a`: `Linux localhost 6.6.144-zpd1203-@idkwhatismyname123 #6 SMP PREEMPT Wed Nov 25 14:20:37 AEST 2026 aarch64 Toybox`
+  - `sys.boot_completed=1`、`getenforce=Permissive`、`/sys/class/vtconsole/` 仅存在 `vtcon0 ((S) dummy device)`（无 `vtcon1`/`fbcon` 屏幕跑码）、11 枚 `.ko` 全加载（`mali_kbase_mt6768` `Used by 12`）。
+  - 前一轮（#5）已实机验证硬件项：`ADB + COM` (`0x0e8d:0x2006`)、`Mali-G52 MC2` OpenGL ES 3.2、Himax 触屏与手写笔、`mt6768-mt6358` + `aw87xxx@59/5A`、`lcd-backlight`、`sgm41510` 充电在线（11 枚 `.ko` 同源码，本次重编仅更新 `CONFIG_LOCALVERSION` 与 `fbcon=map:9`）。
 
 ## 1. 洁净源码仓库基线（全部 8 个 WSL2 仓库均已提交且 `clean=True`，零 `-dirty`）
 
@@ -19,7 +22,7 @@
 - 输出内核版本标识：**`6.6.144-zpd1203-@idkwhatismyname123`**（`CONFIG_LOCALVERSION="-zpd1203-@idkwhatismyname123"` + `# CONFIG_LOCALVERSION_AUTO is not set` + `build_kernel.sh` `LOCALVERSION=""` 抑制 `+`）。
 - 全套 `git format-patch`（26 份补丁，含 `patches/phase7_pstore_fixes/` `device_modules` `0003`/`0004` 与 `kernel-6.6` `0002`/`0003`）、DTS/DTSI、config、分析报告（5 份）与脚本已完整保存至 `d:\P3066\`。
 
-## 2. 已静态验证交付产物（`6.6.144-zpd1203-@idkwhatismyname123` + `fbcon=map:9` 关闭屏幕跑码；尚未刷机实测；`minimal` 仍为 `g79934f29bfe5`）
+## 2. 已实机验证交付产物（`full`: `6.6.144-zpd1203-@idkwhatismyname123` + `fbcon=map:9`，已刷入 `boot_a` 并进入桌面；`minimal` 仍为 `g79934f29bfe5`）
 
 - **全量产物**（`d:\P3066\out\full\`，校验详见 `out\full\SHA256SUMS.txt`）：
   - `boot-full-6.6.img`：`33,554,432 B`（SHA256 `d1f0eabfd77cc7d73d6a0fb81fd00d62cdbe6b6200449dd88a29d4ab38491e12`，raw `31b185332d18bdbfd6abb8710422405a58c6e4763fcf6fcd152795de8d93f82a` / `28,334,080 B`，命令行含 `console=ttyS0,921600n1 fbcon=map:9 panic=8 printk.devkmsg=on loglevel=4 ... androidboot.mode=normal androidboot.selinux=permissive`）
@@ -32,6 +35,7 @@
 - 原厂分区备份 `D:\备份\p\GeekFlashTool_Readback_20260820162108246` 及 `/home/asus/{zpd1203-5.10.240,zpd1203,mt6768_build}` 全程未被修改。
 - 实机 `expdb` 已证实原厂 `lk_a.img` 执行 `fastboot boot` 会因 `boot image is NULL` 触发 LK Panic；**实机测试需经用户明确确认后刷入 `boot_a`**（并可随时用 [restore_stock.ps1](file:///d:/P3066/scripts/restore_stock.ps1) 还原）。
 
-## 4. 下一步实机验证建议流程（无 `fbcon` 屏幕跑码 + `@idkwhatismyname123` 内核名校验）
-1. 经用户确认后重启至 Fastboot 并将新版 `d:\P3066\out\full\boot-full-6.6.img`（`d1f0eabfd77cc7d73d6a0fb81fd00d62cdbe6b6200449dd88a29d4ab38491e12`）刷入 `boot_a`。
-2. 重启进入桌面确认不再有屏幕跑码，待 ADB 上线后运行 `adb shell uname -a` 验证 `6.6.144-zpd1203-@idkwhatismyname123` 与 `lsmod`，并排查电池 `capacity=-1`、`mediatek-drm` 延迟探测及 Wi-Fi/BT/音频实机体验。
+## 4. 下一步实机打磨建议（功能排查与优化）
+1. **电池电量上报**：排查 `battery/capacity=-1` / `mtk-gauge/present=0`（对比 `mt6358-gauge` DT 与 `fuelgauged` 通信日志）。
+2. **原生 `mediatek-drm`**：排查 `disp_ovl0@1400b000: could not find phandle 262144`（及 `262145`/`262146`）导致当前走 `fb0_bridge` 回退的问题。
+3. **日常外设体验实测**：在桌面下验证 Wi-Fi 扫描连接、蓝牙配对、扬声器播放、横屏触摸/手写笔及待机唤醒，必要时运行 `.\scripts\collect_logs.ps1` 抓包。
