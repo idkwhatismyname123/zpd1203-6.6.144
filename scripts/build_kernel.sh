@@ -47,6 +47,8 @@ if [ "$CLEAN_CFG" = "1" ]; then
 fi
 mkdir -p "$OUT"
 
+export LOCALVERSION=""
+
 COMMON_FLAGS=(
   ARCH=arm64
   LLVM=1
@@ -56,6 +58,7 @@ COMMON_FLAGS=(
   DEVICE_MODULES_REL_DIR=../kernel_device_modules-6.6
   "DEVICE_MODULES_PATH=$DDIR"
   "DEVCIE_MODULES_INCLUDE=-I$DDIR/include -I$DDIR/include/uapi"
+  LOCALVERSION=
 )
 
 echo "=== [build_kernel:$MODE] Configuring ($DEFCONFIG) in $OUT ==="
