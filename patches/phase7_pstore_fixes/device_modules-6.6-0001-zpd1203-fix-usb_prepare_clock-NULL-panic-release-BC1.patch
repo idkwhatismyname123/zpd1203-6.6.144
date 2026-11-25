@@ -1,0 +1,219 @@
+From 3086c4b0af533ad52ad56f1e38c3013e624b2e9d Mon Sep 17 00:00:00 2001
+From: ZPD1203 Kernel Port <zpd1203@localhost>
+Date: Wed, 25 Nov 2026 12:59:08 +1000
+Subject: [PATCH] zpd1203: fix usb_prepare_clock NULL panic, release BC1.2 DPDM
+ and enable simplefb aperture handoff
+
+---
+ .../boot/dts/mediatek/mt6768-zpd1203.dts      | 16 +++++++++-----
+ .../mediatek/zpd1203-display-touch-gpu.dtsi   |  4 ----
+ arch/arm64/configs/zpd1203_console_com.config |  1 +
+ arch/arm64/configs/zpd1203_defconfig          |  1 +
+ .../drm/mediatek/mediatek_v2/mtk_drm_drv.c    |  3 +++
+ drivers/misc/mediatek/usb/usb20/musb_core.c   | 21 +++++++++++++++++++
+ drivers/power/supply/bq2589x_charger.c        | 13 ++++++++++--
+ 7 files changed, 48 insertions(+), 11 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/mediatek/mt6768-zpd1203.dts b/arch/arm64/boot/dts/mediatek/mt6768-zpd1203.dts
+index dec1705..5ae0dcb 100644
+--- a/arch/arm64/boot/dts/mediatek/mt6768-zpd1203.dts
++++ b/arch/arm64/boot/dts/mediatek/mt6768-zpd1203.dts
+@@ -27,17 +27,23 @@ debug_kinfo: debug-kinfo {
+ 	battery_swell_det: battery_swell_det { };
+ 	zlt_alsps: zlt_alsps { };
+ 
+-	framebuffer0: framebuffer@7d350000 {
+-		compatible = "simple-framebuffer";
+-		reg = <0x0 0x7d350000 0x0 0x0095a000>;
+-		status = "disabled";
+-	};
+ };
+ 
+ &chosen {
+ 	#address-cells = <2>;
+ 	#size-cells = <2>;
+ 	ranges;
++
++	framebuffer0: framebuffer@7d350000 {
++		compatible = "simple-framebuffer";
++		reg = <0x0 0x7d350000 0x0 0x0095a000>;
++		width = <1200>;
++		height = <2000>;
++		stride = <4864>;
++		format = "a8r8g8b8";
++		mediatek,zpd1203-lk-display;
++		status = "okay";
++	};
+ };
+ 
+ &mmc0 {
+diff --git a/arch/arm64/boot/dts/mediatek/zpd1203-display-touch-gpu.dtsi b/arch/arm64/boot/dts/mediatek/zpd1203-display-touch-gpu.dtsi
+index 7afe40b..1bc3a9b 100644
+--- a/arch/arm64/boot/dts/mediatek/zpd1203-display-touch-gpu.dtsi
++++ b/arch/arm64/boot/dts/mediatek/zpd1203-display-touch-gpu.dtsi
+@@ -15,10 +15,6 @@
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/pinctrl/mt6768-pinfunc.h>
+ 
+-&framebuffer0 {
+-	status = "disabled";
+-};
+-
+ &pio {
+ 	zpd_disp_pwm_pins: zpd_disp_pwm_pins {
+ 		pins_cmd_dat {
+diff --git a/arch/arm64/configs/zpd1203_console_com.config b/arch/arm64/configs/zpd1203_console_com.config
+index 5b7dd43..3bca827 100644
+--- a/arch/arm64/configs/zpd1203_console_com.config
++++ b/arch/arm64/configs/zpd1203_console_com.config
+@@ -7,6 +7,7 @@ CONFIG_VT_CONSOLE=y
+ CONFIG_VT_CONSOLE_SLEEP=y
+ CONFIG_HW_CONSOLE=y
+ CONFIG_VT_HW_CONSOLE_BINDING=y
++CONFIG_FB_SIMPLE=y
+ CONFIG_FRAMEBUFFER_CONSOLE=y
+ CONFIG_FRAMEBUFFER_CONSOLE_DETECT_PRIMARY=y
+ CONFIG_FRAMEBUFFER_CONSOLE_ROTATION=y
+diff --git a/arch/arm64/configs/zpd1203_defconfig b/arch/arm64/configs/zpd1203_defconfig
+index 6c606fa..4967793 100644
+--- a/arch/arm64/configs/zpd1203_defconfig
++++ b/arch/arm64/configs/zpd1203_defconfig
+@@ -442,6 +442,7 @@ CONFIG_V4L_PLATFORM_DRIVERS=y
+ CONFIG_V4L_MEM2MEM_DRIVERS=y
+ CONFIG_DRM=y
+ CONFIG_FB=y
++CONFIG_FB_SIMPLE=y
+ CONFIG_BACKLIGHT_CLASS_DEVICE=y
+ CONFIG_FRAMEBUFFER_CONSOLE_ROTATION=y
+ CONFIG_SOUND=y
+diff --git a/drivers/gpu/drm/mediatek/mediatek_v2/mtk_drm_drv.c b/drivers/gpu/drm/mediatek/mediatek_v2/mtk_drm_drv.c
+index c195df7..5b67519 100644
+--- a/drivers/gpu/drm/mediatek/mediatek_v2/mtk_drm_drv.c
++++ b/drivers/gpu/drm/mediatek/mediatek_v2/mtk_drm_drv.c
+@@ -13,6 +13,7 @@
+ #include <drm/drm_gem_dma_helper.h>
+ #include <drm/drm_fourcc.h>
+ #include <drm/drm_framebuffer.h>
++#include <drm/drm_aperture.h>
+ #include <drm/drm_drv.h>
+ #include <drm/drm_vblank.h>
+ #include <linux/delay.h>
+@@ -11029,6 +11030,8 @@ static int mtk_drm_bind(struct device *dev)
+ 	drm->dev_private = private;
+ 	private->drm = drm;
+ 
++	drm_aperture_remove_framebuffers(&mtk_drm_driver);
++
+ 	ret = mtk_drm_kms_init(drm);
+ 	if (ret < 0)
+ 		goto err_free;
+diff --git a/drivers/misc/mediatek/usb/usb20/musb_core.c b/drivers/misc/mediatek/usb/usb20/musb_core.c
+index 57e81b2..eeaa521 100644
+--- a/drivers/misc/mediatek/usb/usb20/musb_core.c
++++ b/drivers/misc/mediatek/usb/usb20/musb_core.c
+@@ -3135,6 +3135,11 @@ EXPORT_SYMBOL(is_usb_rdy);
+ 
+ void Charger_Detect_Init(void)
+ {
++	if (!glue || IS_ERR_OR_NULL(glue->phy)) {
++		DBG(0, "%s: glue/phy not ready\n", __func__);
++		return;
++	}
++
+ 	usb_prepare_enable_clock(true);
+ 
+ 	/* wait 50 usec. */
+@@ -3150,6 +3155,11 @@ EXPORT_SYMBOL(Charger_Detect_Init);
+ 
+ void Charger_Detect_Release(void)
+ {
++	if (!glue || IS_ERR_OR_NULL(glue->phy)) {
++		DBG(0, "%s: glue/phy not ready\n", __func__);
++		return;
++	}
++
+ 	usb_prepare_enable_clock(true);
+ 
+ 	phy_set_mode_ext(glue->phy, PHY_MODE_USB_DEVICE, PHY_MODE_BC11_SW_CLR);
+@@ -3530,6 +3540,12 @@ bool usb_prepare_clock(bool enable)
+ 
+ 	mutex_lock(&prepare_lock);
+ 
++	if (!glue) {
++		DBG(0, "musb glue not ready\n");
++		mutex_unlock(&prepare_lock);
++		return 0;
++	}
++
+ 	if (IS_ERR_OR_NULL(glue->sys_clk) ||
+ 			IS_ERR(glue->ref_clk) ||
+ 			IS_ERR(glue->src_clk) ||
+@@ -3603,6 +3619,11 @@ int usb_enable_clock(bool enable)
+ 
+ 	spin_lock_irqsave(&musb_reg_clock_lock, flags);
+ 
++	if (!glue) {
++		DBG_LIMIT(1, "musb glue not ready");
++		goto exit;
++	}
++
+ 	if (unlikely(atomic_read(&clk_prepare_cnt) <= 0)) {
+ 		DBG_LIMIT(1, "clock not prepare");
+ 		goto exit;
+diff --git a/drivers/power/supply/bq2589x_charger.c b/drivers/power/supply/bq2589x_charger.c
+index f7cbc0e..02b7847 100644
+--- a/drivers/power/supply/bq2589x_charger.c
++++ b/drivers/power/supply/bq2589x_charger.c
+@@ -1183,6 +1183,7 @@ static void bq2589x_read_byte_work(struct work_struct *work)
+ 	int vbus_stat = 0;
+ 	u8 reg_type;
+ 	u32 vbus = 0;
++	bool detect_init_called = false;
+ 
+ 	struct bq2589x *bq = container_of(work, struct bq2589x, read_byte_work.work);
+ 
+@@ -1236,6 +1237,7 @@ static void bq2589x_read_byte_work(struct work_struct *work)
+ 		if (!prev_pg && bq->power_good) {
+ 			pr_info("adapter/usb inserted\n");
+ 			Charger_Detect_Init();
++			detect_init_called = true;
+ 			if (vbus_stat != BQ2589X_VBUS_TYPE_DCP) {
+ 				ret = bq2589x_force_dpdm(bq);
+ 				msleep(400);
+@@ -1248,6 +1250,7 @@ static void bq2589x_read_byte_work(struct work_struct *work)
+ 		if (!prev_pg && bq->power_good) {
+ 			pr_info("adapter/usb inserted\n");
+ 			Charger_Detect_Init();
++			detect_init_called = true;
+ 			if (vbus_stat != BQ2589X_VBUS_TYPE_DCP) {
+ 				ret = bq2589x_force_dpdm(bq);
+ 				msleep(400);
+@@ -1260,6 +1263,12 @@ static void bq2589x_read_byte_work(struct work_struct *work)
+ 
+ 	bq2589x_dump_regs(bq);
+ 	ret = bq2589x_get_usb_type(bq, &bq->psy_usb_type);
++	if (detect_init_called && !prev_pg &&
++	    (bq->psy_usb_type == POWER_SUPPLY_USB_TYPE_SDP ||
++	     bq->psy_usb_type == POWER_SUPPLY_USB_TYPE_CDP ||
++	     bq->psy_usb_type == POWER_SUPPLY_USB_TYPE_UNKNOWN)) {
++		Charger_Detect_Release();
++	}
+ 	if (bq->psy)
+ 		power_supply_changed(bq->psy);
+ 	if (bq->usb_psy)
+@@ -2466,10 +2475,10 @@ static int bq2589x_charger_probe(struct i2c_client *client)
+ 		return ret;
+ 	}
+ 
++	INIT_DELAYED_WORK(&bq->read_byte_work, bq2589x_read_byte_work);
+ 	bq2589x_register_interrupt(bq);
+ 
+-	INIT_DELAYED_WORK(&bq->read_byte_work, bq2589x_read_byte_work);
+-	schedule_delayed_work(&bq->read_byte_work, msecs_to_jiffies(0));
++	schedule_delayed_work(&bq->read_byte_work, msecs_to_jiffies(1500));
+ 	//bq2589x_force_dpdm(bq);
+ 
+ 	bq->chg_dev = charger_device_register(bq->chg_dev_name,
+-- 
+2.53.0
+

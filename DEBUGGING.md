@@ -16,8 +16,8 @@
 - 当系统在 ADB 与 ACM 枚举前崩溃且 `pstore` 无信息时，可通过 SP Flash Tool / GeekFlashTool / mtkclient 回读 `expdb` 解析 PL/LK/GZ/AEE 日志。
 
 ### Level 3：屏幕内核日志 (`fbcon`)、双模显示输出与回退保障（DRM v2 + `simplefb` 门控）
-- **实机屏幕滚动内核日志 (`fbcon`)**：`full` 与 `minimal` 两种镜像均已启用 `CONFIG_VT=y`、`CONFIG_VT_CONSOLE=y`、`CONFIG_FRAMEBUFFER_CONSOLE=y`、`CONFIG_FRAMEBUFFER_CONSOLE_ROTATION=y` 与 `CONFIG_FONT_TER16x32=y`（高分屏 16x32 大字体），并在启动命令行注入 `console=tty0 fbcon=rotate:3,font:TER16x32 printk.devkmsg=on ignore_loglevel loglevel=8`，内核一起即可按横屏方向直接在屏幕实时滚动打印内核与 `[ZPD1203-6.6] STAGE 1..7` 日志（无需等到 Android 图形栈就绪）。
-- **`full` 模式**：启用 `mediatek_v2` DRM (`CONFIG_DRM_FBDEV_EMULATION=y`)、`panel-himax-jt120wul005-vdo`、`aw37503` 与 `mtk_leds` 背光，提供原生 `/dev/dri/card0` 及支持 `fbcon` 的 `mtk_fbdev_ops`。
+- **实机屏幕滚动内核日志 (`fbcon`)**：`full` 与 `minimal` 两种镜像均已启用 `CONFIG_VT=y`、`CONFIG_VT_CONSOLE=y`、`CONFIG_FRAMEBUFFER_CONSOLE=y`、`CONFIG_FRAMEBUFFER_CONSOLE_ROTATION=y`、`CONFIG_FB_SIMPLE=y` 与 `CONFIG_FONT_TER16x32=y`（高分屏 16x32 大字体），并在启动命令行注入 `console=tty0 fbcon=rotate:3,font:TER16x32 panic=8 printk.devkmsg=on ignore_loglevel loglevel=8`（异常 Panic 停留 8 秒便于读屏）。
+- **`full` 模式平滑交接**：DTS `&chosen/framebuffer@7d350000` 开启早期 `simple-framebuffer` 从 `t=0.45s` 起立即输出屏幕日志；随后 `mediatek_v2` DRM (`CONFIG_DRM_FBDEV_EMULATION=y`)、`panel-himax-jt120wul005-vdo`、`aw37503` 与 `mtk_leds` 在 `mtk_drm_bind()` 调用 `drm_aperture_remove_framebuffers(&mtk_drm_driver)` 平滑接管并注销 `simplefb`，提供原生 `/dev/dri/card0` 与支持 `fbcon` 的 `mtk_fbdev_ops`。
 - **`minimal` 模式（或 `full` 模式 DRM 未就绪自动降级）**：使用 LK 帧缓冲 `0x7d350000`（`1200x2000`, `simplefb` 清除 OVL0-L3 DAL 覆盖层 + `/sys/kernel/debug/zpd_disp_regs` 快照）与零依赖 `gralloc.fb0_bridge.so`。
 - `a12_init_wrapper` 在 `SwitchRoot` 后检测 `/dev/dri/card0`：若 `/dev/dri/card0` 存在则跳过 HWC 空桩、启用原生 DRM；若不存在（`minimal` 或异常降级）则挂载 `gralloc.fb0_bridge.so` + `/dev/.empty_hwc` 保底输出画面。
 
@@ -42,4 +42,15 @@
 
 ## 3. 真实设备日志档案
 
-> **当前尚无 Linux 6.6 实机测试日志（`尚未验证`）**。用户实机运行后可通过 `scripts\collect_logs.ps1` 拉取并回填本节，作为后续真机调优与实机状态晋级依据。
+### 记录 #1：2026-11-25 首次 `boot-full-6.6.img` (`g79934f29bfe5`) 实机测试与 `pstore`/`expdb` 取证
+
+- **取证路径**：[crash_forensics_20261125_125044](file:///d:/P3066/out/crash_forensics_20261125_125044)（恢复原厂 `boot_a.img` 后通过 `adb root` 完整导出 `console-ramoops-0` 168,499 B、`dmesg-ramoops-0/1`、`proc_pl_lk.txt` 及 20 MiB `expdb_live.img`）。
+- **已由实机日志直接确认的事实**：
+  1. `boot-full-6.6.img`（`6.6.144-zpd1203-g79934f29bfe5 #2`）成功由 LK 跳转并通过 Linux 6.6.144 极早期启动至 **`t=0.590s`**（`console-ramoops-0` 共 2,240 行）：双 Rank 6 GiB DRAM、8 核 CPU / PSCIv1.1 / GICv3、`ramoops` (`0xe0000@0x4d010000`)、`pwrap` / `mt6358-rtc`、`SSPM`、`mtk_sysirq`（10 字 `INTPOL` 写入完成）、`KernelSU v3.3.1`、`mtk-smi`、`mtk-wdt`、`mt6358-gauge`、`i2c0..5` 及真实充电 IC **`sgm41510@6b` (`Part Num: 0, Revision: 0`)** 均已正常探测。
+  2. **崩溃根因（`dmesg-ramoops-0` L48–L90）**：`bq2589x_charger_probe()` 在 `0.589s` 注册完立即以 `0 ms` 调度 `bq2589x_read_byte_work`，检测到板端已连接 USB 后调用 `Charger_Detect_Init()` -> `usb_prepare_clock+0x38/0x30c`，此时 `usb20` (`musb-hdrc`) 尚未完成 `probe`、`glue` 仍为 `NULL`，访问 `glue->sys_clk`（虚拟地址 `0x0000000000000018`）触发 Kernel Panic 并立刻重启；且旧版 `full` 未开启 `simplefb` 导致 DRM 初始化前屏幕上无可见报错。
+  3. **次生隐患定位**：`bq2589x_get_usb_type()` 中 `Charger_Detect_Release()` 仅在 `if (prev_pg)` 时执行，首次上电检测到 PC SDP/CDP 时不会释放 D+/D- 给 MUSB。
+  4. **`fastboot boot` LK 限制实证（`expdb_live.img` 偏移 `0x12dca88`）**：尝试对 `boot-minimal-6.6.img` 执行 `fastboot boot` 时，LK 打印 `[fastboot: command buf]-[boot]` -> **`boot image is NULL`** -> `panic (caller 0x4c42941f)`，导致 USB 断连报 `usb_read failed (31)`；因此实机测试应刷写 `boot_a` 分区并保留原厂 `boot_a.img` 恢复路径。
+- **修复措施（已合入 `92c716870252` / `3086c4b0af53` 并通过 `full` 重建）**：
+  1. 在 [musb_core.c](/home/asus/zpd1203-6.6/kernel/kernel_device_modules-6.6/drivers/misc/mediatek/usb/usb20/musb_core.c) 的 `Charger_Detect_Init()`、`Charger_Detect_Release()`、`usb_prepare_clock()`、`usb_enable_clock()` 加入 `glue` / `glue->phy` 空指针保护。
+  2. 在 `bq2589x_charger.c` 将 `INIT_DELAYED_WORK` 前移至中断注册前、初始 `read_byte_work` 延后至 `1500 ms`，并在初次探测为 `SDP`/`CDP`/`UNKNOWN` 时补齐 `Charger_Detect_Release()`。
+  3. 为 `full` 模式开启 `CONFIG_FB_SIMPLE=y` 与 `&chosen/framebuffer@7d350000` 早期屏幕日志，在 `mtk_drm_bind()` 接入 `drm_aperture_remove_framebuffers(&mtk_drm_driver)`，并在命令行加入 `panic=8`。

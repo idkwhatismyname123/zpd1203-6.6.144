@@ -27,17 +27,23 @@
 	battery_swell_det: battery_swell_det { };
 	zlt_alsps: zlt_alsps { };
 
-	framebuffer0: framebuffer@7d350000 {
-		compatible = "simple-framebuffer";
-		reg = <0x0 0x7d350000 0x0 0x0095a000>;
-		status = "disabled";
-	};
 };
 
 &chosen {
 	#address-cells = <2>;
 	#size-cells = <2>;
 	ranges;
+
+	framebuffer0: framebuffer@7d350000 {
+		compatible = "simple-framebuffer";
+		reg = <0x0 0x7d350000 0x0 0x0095a000>;
+		width = <1200>;
+		height = <2000>;
+		stride = <4864>;
+		format = "a8r8g8b8";
+		mediatek,zpd1203-lk-display;
+		status = "okay";
+	};
 };
 
 &mmc0 {

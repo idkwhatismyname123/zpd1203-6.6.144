@@ -15,10 +15,6 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/pinctrl/mt6768-pinfunc.h>
 
-&framebuffer0 {
-	status = "disabled";
-};
-
 &pio {
 	zpd_disp_pwm_pins: zpd_disp_pwm_pins {
 		pins_cmd_dat {

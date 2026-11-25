@@ -1,0 +1,25 @@
+From 92c7168702526752e0787494a23ca3ee254fbe0d Mon Sep 17 00:00:00 2001
+From: ZPD1203 Kernel Port <zpd1203@localhost>
+Date: Wed, 25 Nov 2026 12:59:08 +1000
+Subject: [PATCH] arm64: configs: enable FB_SIMPLE in zpd1203_defconfig for
+ early screen logs
+
+---
+ arch/arm64/configs/zpd1203_defconfig | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/arm64/configs/zpd1203_defconfig b/arch/arm64/configs/zpd1203_defconfig
+index 6c606fa33..4967793be 100644
+--- a/arch/arm64/configs/zpd1203_defconfig
++++ b/arch/arm64/configs/zpd1203_defconfig
+@@ -442,6 +442,7 @@ CONFIG_V4L_PLATFORM_DRIVERS=y
+ CONFIG_V4L_MEM2MEM_DRIVERS=y
+ CONFIG_DRM=y
+ CONFIG_FB=y
++CONFIG_FB_SIMPLE=y
+ CONFIG_BACKLIGHT_CLASS_DEVICE=y
+ CONFIG_FRAMEBUFFER_CONSOLE_ROTATION=y
+ CONFIG_SOUND=y
+-- 
+2.53.0
+

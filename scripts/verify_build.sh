@@ -74,6 +74,7 @@ chk(f"0x{r_addr:x}" == stock["ramdisk_addr"], f"ramdisk_addr=0x{r_addr:x}")
 chk(f"0x{t_addr:x}" == stock["tags_addr"], f"tags_addr=0x{t_addr:x}")
 chk(f"0x{dtb_addr:x}" == stock["dtb_addr"], f"dtb_addr=0x{dtb_addr:x}")
 chk("mt6768.force_slot_a=1" in cmdline, "mt6768.force_slot_a=1 in cmdline")
+chk("panic=8" in cmdline, "panic=8 in cmdline")
 chk("console=tty0" in cmdline, "console=tty0 in cmdline")
 chk("fbcon=rotate:3,font:TER16x32" in cmdline, "fbcon=rotate:3,font:TER16x32 in cmdline")
 
@@ -139,6 +140,7 @@ REQ_COMMON=(
   CONFIG_USB_CONFIGFS_ACM
   CONFIG_U_SERIAL_CONSOLE
   CONFIG_DEVTMPFS
+  CONFIG_FB_SIMPLE
   CONFIG_VT
   CONFIG_VT_CONSOLE
   CONFIG_FRAMEBUFFER_CONSOLE
