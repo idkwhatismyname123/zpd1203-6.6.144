@@ -1,0 +1,44 @@
+From 50a104daac33bb7716127341e07057a8e0b9cb2c Mon Sep 17 00:00:00 2001
+From: idkwhatismyname <107376203+idkwhatismyname123@users.noreply.github.com>
+Date: Wed, 25 Nov 2026 16:16:04 +1000
+Subject: [PATCH] arm64: configs: build in MTK keypad and PMIC keys drivers for
+ ZPD1203
+
+---
+ arch/arm64/configs/zpd1203_defconfig         | 4 ++--
+ arch/arm64/configs/zpd1203_minimal_defconfig | 4 ++--
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/arch/arm64/configs/zpd1203_defconfig b/arch/arm64/configs/zpd1203_defconfig
+index 3a2f282d0..a0bc1ed6b 100644
+--- a/arch/arm64/configs/zpd1203_defconfig
++++ b/arch/arm64/configs/zpd1203_defconfig
+@@ -789,8 +789,8 @@ CONFIG_DEVICE_MODULES_RTC_DRV_MT6397=y
+ CONFIG_MTK_CCD_REMOTEPROC=m
+ CONFIG_RPMSG_MTK=m
+ CONFIG_RPMSG_MTK_CCD=m
+-CONFIG_KEYBOARD_MTK_KPD=m
+-CONFIG_DEVICE_MODULES_KEYBOARD_MTK_PMIC=m
++CONFIG_KEYBOARD_MTK_KPD=y
++CONFIG_DEVICE_MODULES_KEYBOARD_MTK_PMIC=y
+ CONFIG_DEVICE_MODULES_PHY_MTK_TPHY=y
+ CONFIG_DEVICE_MODULES_PHY_MTK_XSPHY=m
+ CONFIG_PHY_MTK_FPGAPHY=m
+diff --git a/arch/arm64/configs/zpd1203_minimal_defconfig b/arch/arm64/configs/zpd1203_minimal_defconfig
+index 8a9e2cee9..923d8a159 100644
+--- a/arch/arm64/configs/zpd1203_minimal_defconfig
++++ b/arch/arm64/configs/zpd1203_minimal_defconfig
+@@ -847,8 +847,8 @@ CONFIG_MTK_CCD_REMOTEPROC=m
+ CONFIG_MTK_CCU_RPROC=m
+ CONFIG_RPMSG_MTK=m
+ CONFIG_RPMSG_MTK_CCD=m
+-CONFIG_KEYBOARD_MTK_KPD=m
+-CONFIG_DEVICE_MODULES_KEYBOARD_MTK_PMIC=m
++CONFIG_KEYBOARD_MTK_KPD=y
++CONFIG_DEVICE_MODULES_KEYBOARD_MTK_PMIC=y
+ CONFIG_DEVICE_MODULES_PHY_MTK_PCIE=m
+ CONFIG_DEVICE_MODULES_PHY_MTK_TPHY=y
+ CONFIG_DEVICE_MODULES_PHY_MTK_XSPHY=m
+-- 
+2.53.0
+
