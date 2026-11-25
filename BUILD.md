@@ -8,8 +8,8 @@
   - 镜像与校验工具：`mkbootimg`, `unpack_bootimg`, `avbtool` (`1.3.0`), `fdtoverlay`, `dtc`, `pahole`, `modinfo`, `modprobe`, `fakeroot`, `cpio`, `gzip`, `xz`, `zstd`, `sha256sum`, `fastboot`, `adb`
 
 ## 2. 目录布局（WSL2 + Windows 控制仓）
-- `/home/asus/zpd1203-6.6/kernel/kernel-6.6/` — Linux `6.6.144` 主内核树（`zpd1203-6.6`, commit `91af1aa18e1a`, clean）
-- `/home/asus/zpd1203-6.6/kernel/kernel_device_modules-6.6/` — MTK BSP 模块树（`zpd1203-6.6`, commit `8ed4bf689504`, clean）
+- `/home/asus/zpd1203-6.6/kernel/kernel-6.6/` — Linux `6.6.144` 主内核树（`zpd1203-6.6`, commit `79934f29bfe5`, clean）
+- `/home/asus/zpd1203-6.6/kernel/kernel_device_modules-6.6/` — MTK BSP 模块树（`zpd1203-6.6`, commit `398a4dd27ef0`, clean）
 - `/home/asus/zpd1203-6.6/modules/gpu/` — Mali-G52 `r32p1` GPU 模块源码（commit `2d3b928b88ce`, clean）
 - `/home/asus/zpd1203-6.6/modules/connectivity/` — Connsys 无线模块源码（5 仓均 clean；构建脚本自动维护 `.connsys_top` 符号链接）
 - `/home/asus/zpd1203-6.6/extracted_stock/` — 只读原厂解包（纯净 `vendor_boot/ramdisk` 与 `dtbo/dtbo_a_0.dtb`）
@@ -47,6 +47,8 @@
 3. **[build_ramdisk.sh](file:///d:/P3066/scripts/build_ramdisk.sh)** (`--mode full|minimal`):
    - 解包纯净 `vendor_boot_a` ramdisk，交叉编译静态 `a12_init_wrapper` 与零依赖 `gralloc.fb0_bridge.so`，修补 `prop.default` (`ro.debuggable=1`, `ro.adb.secure=0`, `ro.boot.selinux=permissive`)；`full` 模式打包全部 11 枚 stripped `.ko` 至 `/zpd_modules/` 并采用 `xz --check=crc32 -6` 压缩。
 4. **[package_boot.sh](file:///d:/P3066/scripts/package_boot.sh)** (`--mode full|minimal`):
-   - 调用 `wrap_dt_table.py` (`0xd7b7ab1e`) 与 `mkbootimg`（Boot Header v2, `mt6768.force_slot_a=1`），强制检查 `<= 33,554,432` B 后加签未签名 AVB hash footer (`avbtool`)，将全部产物与 `SHA256SUMS.txt` 发布至 `d:\P3066\out\<mode>\`。
+   - 调用 `wrap_dt_table.py` (`0xd7b7ab1e`) 与 `mkbootimg`（Boot Header v2, `console=tty0 fbcon=rotate:3,font:TER16x32 ... mt6768.force_slot_a=1`），强制检查 `<= 33,554,432` B 后加签未签名 AVB hash footer (`avbtool`)，将全部产物与 `SHA256SUMS.txt` 发布至 `d:\P3066\out\<mode>\`。
 5. **[verify_build.sh](file:///d:/P3066/scripts/verify_build.sh)** (`--mode full|minimal`):
-   - 核对 `SHA256SUMS.txt`、Boot v2 头字段与偏移、解压 `ARM\x64` 内核 banner (`Linux version 6.6.144` 且无 `-dirty`)、`unpack_bootimg`、`avbtool info_image`、`fdtoverlay` 叠加原厂 `dtbo_a_0.dtb`（0 错误）、关键 `.config` 必选配置及全量 `.ko` 的 `vermagic` / `module_layout` CRC / `llvm-nm` 0 未定义符号闭环。
+   - 核对 `SHA256SUMS.txt`、Boot v2 头字段与偏移、`console=tty0` / `fbcon=rotate:3,font:TER16x32` / `mt6768.force_slot_a=1`、解压 `ARM\x64` 内核 banner (`Linux version 6.6.144` 且无 `-dirty`)、`unpack_bootimg`、`avbtool info_image`、`fdtoverlay` 叠加原厂 `dtbo_a_0.dtb`（0 错误）、关键 `.config` 必选配置（含 `VT`/`FRAMEBUFFER_CONSOLE`/`FONT_TER16x32`/`DEVTMPFS`/`U_SERIAL_CONSOLE`）及全量 `.ko` 的 `vermagic` / `module_layout` CRC / `llvm-nm` 0 未定义符号闭环。
+6. **[watch_com.ps1](file:///d:/P3066/scripts/watch_com.ps1)**（Windows USB COM 口终端监听助手）:
+   - 自动检索 `VID_1D6B&PID_0104` 或 `VID_0E8D&PID_2006` 等 ZPD1203 USB 串口设备，并以 `115200 8N1` 打开、开启 `DtrEnable`/`RtsEnable`、实时回显与落盘日志并支持直接发送 `status` / `pstore` / `help` / `reboot-fb`。

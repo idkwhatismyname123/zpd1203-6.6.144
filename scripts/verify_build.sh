@@ -74,6 +74,8 @@ chk(f"0x{r_addr:x}" == stock["ramdisk_addr"], f"ramdisk_addr=0x{r_addr:x}")
 chk(f"0x{t_addr:x}" == stock["tags_addr"], f"tags_addr=0x{t_addr:x}")
 chk(f"0x{dtb_addr:x}" == stock["dtb_addr"], f"dtb_addr=0x{dtb_addr:x}")
 chk("mt6768.force_slot_a=1" in cmdline, "mt6768.force_slot_a=1 in cmdline")
+chk("console=tty0" in cmdline, "console=tty0 in cmdline")
+chk("fbcon=rotate:3,font:TER16x32" in cmdline, "fbcon=rotate:3,font:TER16x32 in cmdline")
 
 def align(n, p):
     return ((n + p - 1) // p) * p
@@ -130,7 +132,20 @@ if [[ "$KREL" == *"-dirty"* ]]; then
 fi
 echo "[PASS] kernel.release clean: $KREL"
 
-REQ_COMMON=(CONFIG_USB_MTK_HDRC CONFIG_USB_CONFIGFS_F_FS CONFIG_KSU)
+REQ_COMMON=(
+  CONFIG_USB_MTK_HDRC
+  CONFIG_USB_CONFIGFS_F_FS
+  CONFIG_USB_F_ACM
+  CONFIG_USB_CONFIGFS_ACM
+  CONFIG_U_SERIAL_CONSOLE
+  CONFIG_DEVTMPFS
+  CONFIG_VT
+  CONFIG_VT_CONSOLE
+  CONFIG_FRAMEBUFFER_CONSOLE
+  CONFIG_FRAMEBUFFER_CONSOLE_ROTATION
+  CONFIG_FONT_TER16x32
+  CONFIG_KSU
+)
 for c in "${REQ_COMMON[@]}"; do
   grep -q "^${c}=y$" "$CFG" || { echo "FAIL: missing ${c}=y in $CFG" >&2; exit 1; }
 done

@@ -8,8 +8,8 @@
 
 ## 内核基底与仓库结构
 
-- **核心内核**：`android15-6.6` (**Linux 6.6.144**，`kernel-6.6` commit `91af1aa18e1a`)，集成 KernelSU v3.3.1 (`0c0fdb96`)
-- **MTK BSP 模块树**：`Addster09/mtk-kernel-modules-bsp-6.6`（`kernel_device_modules-6.6` commit `8ed4bf689504`）
+- **核心内核**：`android15-6.6` (**Linux 6.6.144**，`kernel-6.6` commit `79934f29bfe5`)，集成 KernelSU v3.3.1 (`0c0fdb96`)，默认开启 `fbcon` 屏幕日志与 USB CDC-ACM 串口
+- **MTK BSP 模块树**：`Addster09/mtk-kernel-modules-bsp-6.6`（`kernel_device_modules-6.6` commit `398a4dd27ef0`）
 - **Mali-G52 GPU DDK**：`MotorolaMobilityLLC/vendor-mediatek-kernel_modules-gpu` `mali-r32p1`（`r32p1-01eac0`，`modules/gpu` commit `2d3b928b88ce`，匹配原厂 `libGLES_mali.so`）
 - **Wi-Fi / BT Connsys**：Motorola `vvta35` + `v1tl35.73-60-3`（`connfem` / `common` / `bt-mt66xx` / `wlan-adaptor` / `wlan-core-gen4m`，C 源码零修改编译通过）
 
@@ -64,14 +64,17 @@ d:\P3066\
 > 严禁未经确认刷写分区；优先使用内存临时引导 `fastboot boot` 测试。
 
 ```powershell
-# 1. 非破坏性内存临时测试（强烈建议先测试 minimal，再测试 full）：
+# 1. 在另一个 PowerShell 窗口启动实时 USB COM 口监听（支持 status / pstore / help / reboot-fb）：
+.\scripts\watch_com.ps1
+
+# 2. 非破坏性内存临时测试（强烈建议先测试 minimal，再测试 full；屏幕同步显示 fbcon 横屏大字内核日志）：
 .\scripts\test_fastboot_boot.ps1 -Mode minimal
 .\scripts\test_fastboot_boot.ps1 -Mode full
 
-# 2. 收集内核 dmesg / pstore / Android logcat / 电源与设备节点状态（无 ADB 时自动提示 TTY/expdb 步骤）：
+# 3. 收集内核 dmesg / pstore / Android logcat / 电源与设备节点状态（无 ADB 时自动提示 TTY/expdb 步骤）：
 .\scripts\collect_logs.ps1
 
-# 3. 确认需要持久刷写 boot_a 或回退原厂只读备份时（带槽位、SHA256 与二次口令确认门禁）：
+# 4. 确认需要持久刷写 boot_a 或回退原厂只读备份时（带槽位、SHA256 与二次口令确认门禁）：
 .\scripts\flash_boot_safe.ps1 -Mode full
 .\scripts\restore_stock.ps1
 ```
